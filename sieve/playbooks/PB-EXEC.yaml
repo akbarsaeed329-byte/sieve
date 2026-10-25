@@ -1,0 +1,20 @@
+id: PB-EXEC
+title: Suspicious command or script execution
+mitre: [T1059, T1059.001, T1059.003, T1059.004, T1027]
+steps:
+  - id: PB-EXEC-01
+    title: Decode and read the command line safely
+    detail: "Copy the command line from the evidence into an offline text editor on {agent_name}; never run it."
+    requires_approval: false
+  - id: PB-EXEC-02
+    title: Check the parent process and the user
+    detail: "Confirm which program started it and whether {user} normally runs scripts on {agent_name}."
+    requires_approval: false
+  - id: PB-EXEC-03
+    title: Look for persistence
+    detail: "Check scheduled tasks, services and run keys created on {agent_name} in the last hour."
+    requires_approval: false
+  - id: PB-EXEC-04
+    title: Isolate the host
+    detail: "Disconnect {agent_name} from the network until it is checked."
+    requires_approval: true

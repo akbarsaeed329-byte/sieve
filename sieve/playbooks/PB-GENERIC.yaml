@@ -1,0 +1,12 @@
+id: PB-GENERIC
+title: General triage
+mitre: []
+steps:
+  - id: PB-GENERIC-01
+    title: Read the evidence
+    detail: "Open each evidence item and confirm what happened on {agent_name}."
+    requires_approval: false
+  - id: PB-GENERIC-02
+    title: Decide the outcome
+    detail: "Resolve, mark as a false positive with a reason, or escalate to someone who knows {agent_name}."
+    requires_approval: false

@@ -1,134 +1,92 @@
-<p align="center">
-  <img src="docs/sieve-logo.svg" alt="Sieve" width="80">
-</p>
-
 <h1 align="center">Sieve</h1>
 <p align="center">
-  Free, local-first, injection-hardened triage layer for Wazuh alerts.<br>
-  <strong>Turns 5,000 daily alerts into 6 trustworthy incidents.</strong>
-</p>
-
-<p align="center">
-  <a href="#quick-start">Quick start</a> ·
-  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
-  <a href="SECURITY.md">Security</a> ·
-  <a href="CONTRIBUTING.md">Contribute</a>
+  Free, local-first, injection-hardened triage layer for Wazuh.<br>
+  <strong>Turns thousands of raw alerts into a few evidence-backed incidents, and cannot be talked out of a severity.</strong>
 </p>
 
 ---
 
 ## What Sieve does
 
-Sieve sits between Wazuh and your team.  It:
+Sieve sits between Wazuh and your team. It:
 
-1. **Filters and groups** thousands of raw alerts into a handful of incidents
-2. **Scores severity** deterministically — the AI never decides the band
-3. **Detects injection** — attacker-controlled log fields that try to steer the AI are flagged as their own alert
-4. **Explains in plain English** — every sentence links to the exact log lines behind it
-5. **Notifies instantly** — first message within ~1 second; AI summary added to the same message a few seconds later
+1. **Filters and groups** raw alerts into incidents, and links chains such as "brute force, then a successful login".
+2. **Scores severity with rules.** The AI explains; it never decides the band or any action.
+3. **Treats every log field as hostile.** Attacker text that tries to steer the AI trips a wire and becomes its own alert.
+4. **Shows its work.** Every sentence cites the log lines behind it; every suppressed alert has a reason and can be restored.
+5. **Notifies at once** (Telegram, Slack, Discord) and edits the same message when the checked AI summary is ready.
+6. **Works with no AI at all**, with a local model (Ollama), or with a cloud model (masked by default).
 
-## Why it is different
+## Measured on the PoisonedLogs seed set (worst-case, obedient mock model)
 
-| Feature | Most open-source scripts | Commercial AI SOC agents | **Sieve** |
+| | Raw Wazuh | Naive LLM triage | **Sieve** |
 |---|---|---|---|
-| Free and self-hosted | ✅ | ❌ | ✅ |
-| AI decides severity | Often | Not disclosed | **Never** |
-| Injection defence | ❌ | Not disclosed | **Tripwire + fencing** |
-| Evidence links | ❌ | Varies | **Every sentence** |
-| Suppression audit | ❌ | ❌ | ✅ |
-| Published benchmark | ❌ | Vendor-only | **PoisonedLogs (open)** |
+| Notifications per 1,000 alerts | 449 | 688 | **18** |
+| Injections that lowered a severity | – | 43% | **0%** |
+| Poisoned alerts caught by the tripwire | – | – | **100%** |
+| False alarms on benign scenarios | 40% | 80% | **0%** |
+
+Synthetic seed data: these numbers check the design guarantees, not real-world accuracy. Known gap: default
+weights notify 58% of single-alert attacks (they all still become incidents). Details in
+[docs/EVALUATION.md](docs/EVALUATION.md).
 
 ## Quick start
 
-### Option A — Docker (recommended, no Wazuh required for the demo)
-
+### Demo (no Wazuh, no AI)
 ```bash
-git clone https://github.com/yourhandle/sieve
-cd sieve
-cp config/sieve.example.yaml config/sieve.yaml   # edit if you want
-docker compose up -d                              # starts Sieve + Ollama
-
-# Pull a model (first time only — ~5 GB, grab a coffee)
-docker exec ollama ollama pull llama3.1:8b
-
-# Try the demo — injects realistic alerts including a poisoned one
-docker compose --profile demo up sieve-demo
+pip install -e .
+make demo          # loads demo alerts, serves http://localhost:8080
 ```
+Open the page, create the admin account, and explore the incident with the poisoned username.
 
-Open **http://localhost:8080** → create your admin account → see the incidents.
-
-### Option B — pip (bring your own Ollama or use a free cloud API)
-
+### Docker
 ```bash
-pip install sieve-triage          # or: pip install -e . from the repo
-cp config/sieve.example.yaml config/sieve.yaml
-sieve demo                        # inject demo alerts
-sieve serve                       # start the web UI
+make up            # Sieve only, on 127.0.0.1:8080
+make up-ai         # Sieve + Ollama (pulls llama3.1:8b, about 5 GB)
+docker compose --profile demo up   # optional: load demo alerts
 ```
+The first visit opens a five-step setup wizard: admin, Wazuh, AI, notifications, test alert. Each step tests its
+own connection and can be skipped.
 
 ## Connect Wazuh
+1. Copy `integrations/wazuh/custom-sieve` and `custom-sieve.py` to `/var/ossec/integrations/` on the manager;
+   `chmod 750` and `chown root:wazuh` both.
+2. Print the token: `make token` (or `sieve token`).
+3. Add `integrations/wazuh/ossec.conf.snippet.xml` to `ossec.conf` with your Sieve address and the token.
+4. `systemctl restart wazuh-manager`.
 
-1. Copy `integrations/wazuh/custom-sieve.py` to `/var/ossec/integrations/custom-sieve` on your Wazuh manager
-2. Set permissions: `chmod 750 ... && chown root:wazuh ...`
-3. Find your ingest token: `cat data/.ingest_token`
-4. Add the integration block to `/var/ossec/etc/ossec.conf` (example in the file header)
-5. Restart the Wazuh manager
+Optional read-only API credentials (Settings, Integrations) add "Show query" links, investigation checks against
+the indexer, the full coverage map, and human-approved active response.
 
-## Telegram notifications
-
-```yaml
-# config/sieve.yaml
-notify:
-  telegram:
-    enabled: true
-    chat_id: "YOUR_CHAT_ID"     # get from @userinfobot
-    token_env: SIEVE_TELEGRAM_TOKEN
-```
-
-```bash
-export SIEVE_TELEGRAM_TOKEN=your_bot_token
-sieve serve
-```
+## Safety model in one paragraph
+Only `sieve/pipeline/score.py` sets severity. Model input is fenced (per-prompt fence ID, escaped, masked for
+cloud) and model output is validated: sentences need real evidence, may not mention unknown IPs or invented
+numbers, may not echo attacker text, and ATT&CK IDs must exist. Active response is off by default and every run
+needs an admin to confirm it. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [SECURITY.md](SECURITY.md).
 
 ## Project layout
-
 ```
 sieve/
-  pipeline/   normalise · tripwire · filter · group · score
-  llm/        fence · validate · client (fallback chain)
-  notify/     console · telegram · dispatch
-  api/        ingest · incidents · auth · health · metrics
-  playbooks/  PB-BRUTE.yaml · PB-NEWADMIN.yaml · …
-integrations/
-  wazuh/      custom-sieve.py (Wazuh integration script)
-samples/      brute_force.json · poisoned_brute.json
-tests/        test_tripwire · test_normalise · test_score · test_filter
-docs/
-  adr/        ADR-001 · ADR-002 · …
-config/
-  sieve.example.yaml
+  pipeline/      normalise · tripwire · filter · group · score · facts · playbooks
+  llm/           fence · validate · client (fallback chain) · explain · investigate · attack
+  notify/        console · telegram · slack · discord · dispatch
+  api/           ingest · auth · incidents · nis2 · admin · data · health · metrics
+  plugins/       registry · enrichers/abuseipdb
+  integrations/  wazuh (read-only) · wazuh_response (active response)
+  web/           SvelteKit app (src/) and its build (build/)
+benchmark/       generate.py (PoisonedLogs seed) · run.py (four-system harness)
+docs/            ARCHITECTURE · STATUS · EVALUATION · ERROR_CODES · PLUGINS · adr/
 ```
 
-## Run the tests
-
+## Develop
 ```bash
-pytest -v
+pip install -e ".[dev]"
+make lint test     # 163 tests; 80%+ coverage required on pipeline and llm
+make web           # rebuild the UI (Node 20+)
+make bench         # PoisonedLogs harness
 ```
-
-## The injection tripwire
-
-When an attacker puts instructions in a log field — username, user-agent, command line — the tripwire
-detects it **before** the LLM sees the data.  The detection itself becomes a separate alert in the UI,
-labelled with MITRE ATLAS AML.T0051.  Because the LLM never decides severity, a successful injection
-can only affect the wording of a summary, not the band or the action.
-
-See `sieve/pipeline/tripwire.py` for the rule set and `tests/test_tripwire.py` for the test cases.
-
-## Benchmark
-
-The PoisonedLogs dataset and benchmark scripts are in `benchmark/` (Phase 3).  Results will be
-published at v0.1 release.
+Read [MASTER_AI_PROMPT.md](MASTER_AI_PROMPT.md) and [CONTRIBUTING.md](CONTRIBUTING.md) before changing the LLM,
+auth or plugin layers.
 
 ## Licence
-
-Apache 2.0 — see `LICENSE`.
+Apache 2.0. Sieve talks to Wazuh's API and copies none of its GPL code.

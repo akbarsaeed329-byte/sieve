@@ -3,14 +3,14 @@
 
 Deploy
 ------
-1. Copy this file to /var/ossec/integrations/custom-sieve
-2. chmod 750 /var/ossec/integrations/custom-sieve
-3. chown root:wazuh /var/ossec/integrations/custom-sieve
+1. Copy custom-sieve and custom-sieve.py to /var/ossec/integrations/
+2. chmod 750 /var/ossec/integrations/custom-sieve*
+3. chown root:wazuh /var/ossec/integrations/custom-sieve*
 4. Add to /var/ossec/etc/ossec.conf:
 
    <integration>
      <name>custom-sieve</name>
-     <hook_url>http://sieve:8080/api/ingest</hook_url>
+     <hook_url>http://SIEVE_HOST:8080/api/ingest/wazuh</hook_url>
      <api_key>YOUR_INGEST_TOKEN</api_key>
      <alert_format>json</alert_format>
    </integration>

@@ -2,6 +2,7 @@
 Tripwire hits are never suppressed regardless of any rule.
 """
 from __future__ import annotations
+
 from ..config import Settings
 from .normalise import NormAlert
 

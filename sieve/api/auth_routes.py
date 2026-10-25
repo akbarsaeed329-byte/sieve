@@ -1,66 +1,82 @@
-"""Login/logout/setup routes."""
+"""First-run setup, login/logout, session info and invite acceptance."""
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, Response
+
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
-from ..auth import get_db, hash_password, login, require_role
-from ..errors import SieveError
-from ..models import AuditEvent, User
+
+from .. import __version__, runtime
+from ..auth import (
+    accept_invite,
+    audit,
+    clear_session,
+    create_user,
+    get_db,
+    invite_info,
+    issue_session,
+    login,
+    users_exist,
+    viewer,
+)
+from ..errors import SETUP_DONE, SieveError
 
 router = APIRouter(tags=["Auth"])
 
 
-class LoginBody(BaseModel):
+class Creds(BaseModel):
     username: str
     password: str
 
 
-class SetupBody(BaseModel):
-    username: str
-    password: str
+def _secure(request: Request) -> bool:
+    return request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
 
 
 @router.get("/api/setup/status")
-def setup_status(db: Session = Depends(get_db)):
-    has_admin = db.query(User).filter(User.role == "admin").first() is not None
-    return {"setup_done": has_admin}
+def setup_status():
+    return {"needs_admin": not users_exist(), "setup_done": users_exist(), "version": __version__}
 
 
 @router.post("/api/setup", status_code=201)
-def first_run_setup(body: SetupBody, db: Session = Depends(get_db)):
-    if db.query(User).filter(User.role == "admin").first():
-        raise HTTPException(409, {"code": "SIEVE-SETUP-409",
-                                  "message": "Setup already done",
-                                  "fix": "Log in with the admin account."})
-    if len(body.password) < 12:
-        raise HTTPException(400, {"code": "SIEVE-CFG-001",
-                                  "message": "Password must be at least 12 characters"})
-    user = User(username=body.username, password_hash=hash_password(body.password), role="admin")
-    db.add(user)
-    db.add(AuditEvent(actor=body.username, action="setup", target="admin_created"))
-    db.commit()
-    return {"created": True}
+@router.post("/api/setup/admin", status_code=201)
+def first_run_setup(body: Creds, request: Request, response: Response):
+    if users_exist():
+        raise SieveError(SETUP_DONE, "Setup is already complete.", status=409)
+    u = create_user(body.username, body.password, "admin")
+    audit(u.username, "setup.admin_created", u.username)
+    issue_session(response, u, runtime.current().secret_key, _secure(request))
+    return {"ok": True, "username": u.username, "role": u.role}
 
 
 @router.post("/api/auth/login")
-def do_login(body: LoginBody, response: Response, db: Session = Depends(get_db)):
-    from ..app import get_settings
-    settings = get_settings()
-    try:
-        token, user = login(body.username, body.password, db, settings.secret_key)
-    except SieveError as e:
-        raise HTTPException(status_code=e.status, detail=e.to_dict()) from e
-    response.set_cookie("sieve_session", token, httponly=True,
-                        samesite="strict", max_age=3600 * 8)
-    return {"username": user.username, "role": user.role}
+def do_login(body: Creds, request: Request, response: Response, db=Depends(get_db)):
+    _, user = login(body.username[:80], body.password[:1024], db, runtime.current().secret_key)
+    issue_session(response, user, runtime.current().secret_key, _secure(request))
+    return {"ok": True, "username": user.username, "role": user.role}
 
 
 @router.post("/api/auth/logout")
-def do_logout(response: Response, _user=Depends(require_role("admin", "analyst", "viewer"))):
-    response.delete_cookie("sieve_session")
+def do_logout(response: Response, user=Depends(viewer)):
+    clear_session(response)
+    audit(user.username, "auth.logout", user.username)
     return {"ok": True}
 
 
 @router.get("/api/auth/me")
-def me(user=Depends(require_role("admin", "analyst", "viewer"))):
-    return {"username": user.username, "role": user.role}
+@router.get("/api/me")
+def me(user=Depends(viewer)):
+    return {"id": user.id, "username": user.username, "role": user.role,
+            "simple_mode_default": runtime.current().simple_mode_default}
+
+
+@router.get("/api/invites/{token}")
+def invite_check(token: str):
+    inv = invite_info(token)
+    return {"ok": True, "role": inv.role, "expires_at": inv.expires_at.isoformat()}
+
+
+@router.post("/api/invites/{token}/accept", status_code=201)
+def invite_accept(token: str, body: Creds, request: Request, response: Response):
+    u = accept_invite(token, body.username, body.password)
+    audit(u.username, "user.invite_accepted", u.username, role=u.role)
+    issue_session(response, u, runtime.current().secret_key, _secure(request))
+    return {"ok": True, "username": u.username, "role": u.role}

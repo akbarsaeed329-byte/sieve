@@ -1,6 +1,0 @@
-id: PB-EXEC
-title: Suspicious command or script execution
-steps:
-  - {id: PB-EXEC-01, text: "Decode and read the command line in a safe place", approval: false}
-  - {id: PB-EXEC-02, text: "Check the parent process and the user who ran it", approval: false}
-  - {id: PB-EXEC-03, text: "Isolate the host from the network", approval: true}

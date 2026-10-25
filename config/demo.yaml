@@ -1,44 +1,15 @@
-# Sieve configuration. Copy to config/sieve.yaml and edit.
-# Secrets never go here: put them in .env (see .env.example).
-
-data_dir: ./demo-data      # demo data, safe to delete
-bind_host: 127.0.0.1      # keep local; use 0.0.0.0 only behind a reverse proxy with HTTPS
+# Demo: no Wazuh, no AI needed.  SIEVE_CONFIG=config/demo.yaml sieve demo
+data_dir: ./demo-data
+bind_host: 127.0.0.1
 port: 8080
-
-# Your machines. Critical assets raise severity (research doc 6.3, term A).
 assets:
   - { agent_name: web-01, criticality: critical }
   - { agent_name: dc-01, criticality: critical }
   - { agent_name: test-vm, criticality: test }
-
-filter:
-  min_level: 4                      # below this, suppressed (with a reason) unless it continues an open incident
-  allow_rule_ids: []                # rules you always want hidden
-  allow_srcips: [198.51.100.7]      # e.g. your approved vulnerability scanner
-
-grouping:
-  window_minutes: 10
-  max_minutes: 120
-
-weights: { asset: 15, vuln: 10, intel: 10, chain: 20, novelty: 10, volume: 2 }
-bands: { critical: 80, high: 60, medium: 40 }
-tripwire_threshold: 1.0
-
-intel:
-  blocklist_ips: [203.0.113.45]     # offline list; live feeds come as plugins
-
+filter: { min_level: 4, allow_srcips: [198.51.100.7] }
+intel: { blocklist_ips: [203.0.113.45] }
 llm:
-  enabled: true
-  min_band: medium                  # only medium+ incidents reach a model
-  calls_per_hour: 60
-  mask_for_cloud: true              # users, IPs and hosts become tokens before any cloud call
-  providers:                        # fallback order; "no AI" is always the last resort
-    - { name: local-ollama, kind: ollama, base_url: "http://ollama:11434", model: "llama3.1:8b", timeout_s: 90 }
-    # - { name: free-cloud, kind: openai_compatible, base_url: "https://YOUR-PROVIDER/v1",
-    #     model: "YOUR-MODEL", api_key_env: SIEVE_CLOUD_API_KEY, is_cloud: true, timeout_s: 30 }
-
-notify:
-  min_band: high
-  public_url: http://localhost:8080
-  console: true
-  telegram: { enabled: false, chat_id: "", token_env: SIEVE_TELEGRAM_TOKEN }
+  enabled: false              # set true and start Ollama (make up-ai) to see AI summaries
+  providers:
+    - { name: local-ollama, kind: ollama, base_url: "http://localhost:11434", model: "llama3.1:8b", timeout_s: 90 }
+notify: { min_band: high, console: true, public_url: http://localhost:8080 }

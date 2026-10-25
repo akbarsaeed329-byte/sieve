@@ -1,0 +1,17 @@
+id: PB-WEBSCAN
+title: Web scanning or attack attempts
+mitre: [T1595, T1595.002, T1190]
+steps:
+  - id: PB-WEBSCAN-01
+    title: Check for successful responses
+    detail: "Search the web server logs on {agent_name} for HTTP 200 answers to requests from {srcip}."
+    requires_approval: false
+  - id: PB-WEBSCAN-02
+    title: Confirm the application is patched
+    detail: "Compare the web application and server versions on {agent_name} with current security releases."
+    requires_approval: false
+  - id: PB-WEBSCAN-03
+    title: Rate-limit or block the source
+    detail: "Add {srcip} to the web application firewall or firewall blocklist."
+    requires_approval: true
+    active_response: "firewall-drop"

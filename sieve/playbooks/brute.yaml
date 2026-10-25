@@ -1,9 +1,0 @@
-id: PB-BRUTE
-title: Brute force and suspicious login
-steps:
-  - {id: PB-BRUTE-01, text: "Check whether any login from the source IP succeeded", approval: false}
-  - {id: PB-BRUTE-02, text: "Reset the password of the targeted account", approval: false}
-  - {id: PB-BRUTE-03, text: "End active sessions for the account on the host", approval: false}
-  - {id: PB-BRUTE-04, text: "Search other hosts for logins from the same IP", approval: false}
-  - {id: PB-BRUTE-05, text: "Block the source IP at the firewall", approval: true}
-  - {id: PB-BRUTE-06, text: "Disable password login for SSH; use keys", approval: false}

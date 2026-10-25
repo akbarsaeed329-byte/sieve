@@ -24,7 +24,7 @@ RULES: list[tuple[str, float, re.Pattern]] = [
         r"\b(ignore|disregard|forget|override)\b.{0,40}"
         r"\b(previous|prior|earlier|above|all|instructions?)\b", re.I)),
     ("verdict steering", 1.0, re.compile(
-        r"\b(mark|classify|treat|label|flag|consider|report)\b.{0,50}"
+        r"\b(mark|classif|treat|label|flag|consider|report|deem|categori[sz])\w*\b.{0,50}"
         r"\b(benign|false[ -]?positive|safe|harmless|low\s+(severity|priority)|"
         r"approved|maintenance|authori[sz]ed)\b", re.I)),
     ("role marker", 0.8, re.compile(

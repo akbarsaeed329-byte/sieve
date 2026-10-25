@@ -1,37 +1,31 @@
 """Console notifier — always enabled; provides a guaranteed fallback."""
 from __future__ import annotations
-import json
-from datetime import timezone
+
 from ..models import Incident
 from .base import Notifier
-
-BANDS = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🔵"}
+from .render import model
 
 
 class ConsoleNotifier(Notifier):
     name = "console"
 
     async def send(self, incident: Incident, public_url: str) -> dict:
-        icon = BANDS.get(incident.band, "⚪")
-        tripwire = " 🪤 TRIPWIRE" if incident.tripwire else ""
-        ts = incident.opened_at.replace(tzinfo=timezone.utc).strftime("%H:%M:%S UTC")
-        msg = (
-            f"\n{'='*72}\n"
-            f"SIEVE ALERT {icon} [{incident.band.upper()}] {ts}{tripwire}\n"
-            f"INC-{incident.id:04d} · {incident.title}\n"
-            f"Host: {incident.agent_name or '?'}  Source: {incident.srcip or '?'}"
-            f"  User: {incident.user or '?'}  Alerts: {incident.alert_count}\n"
-            f"Score: {incident.score:.0f}  "
-            f"Tactics: {', '.join(incident.tactics or []) or '—'}\n"
-            f"Open: {public_url}/incidents/{incident.id}\n"
-            f"{'='*72}"
-        )
-        print(msg, flush=True)
-        return {"type": "console", "printed": True}
+        m = model(incident, public_url)
+        lines = [f"\n{'=' * 72}", f"SIEVE {m['icon']} [{m['band_label'].upper()}] {m['ref']} · {m['title']}",
+                 f"Host: {m['host']}  Source: {m['srcip'] or '-'}  User: {m['user'] or '-'}  "
+                 f"Alerts: {m['alerts']}  Score: {m['score']}"]
+        if m["tripwire"]:
+            lines.append(f"TRIPWIRE: instruction-like text in {m['untrusted_field']} was treated as data.")
+            lines.append(f"  untrusted {m['untrusted_field']}: {m['untrusted_excerpt']!r}")
+        lines += [f"Open: {m['url']}", "=" * 72]
+        print("\n".join(lines), flush=True)
+        return {"type": "console", "ok": True}
 
     async def edit(self, ref: dict, incident: Incident, explanation: dict, public_url: str) -> None:
-        summary_text = " ".join(s["text"] for s in (explanation.get("summary") or []))
-        print(
-            f"  [AI summary for INC-{incident.id:04d}]: {summary_text or '(none)'}",
-            flush=True,
-        )
+        m = model(incident, public_url, explanation)
+        print(f"  [AI summary for {m['ref']}, checked against evidence]: {' '.join(m['summary']) or '(none)'}",
+              flush=True)
+
+    async def send_text(self, text: str) -> dict:
+        print(text, flush=True)
+        return {"type": "console", "ok": True}

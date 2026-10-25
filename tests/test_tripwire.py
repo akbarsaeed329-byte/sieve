@@ -1,5 +1,6 @@
 """Tripwire unit tests — run with: pytest -v"""
 import pytest
+
 from sieve.pipeline.tripwire import scan
 
 
@@ -60,3 +61,15 @@ def test_hit_details_have_required_keys():
     assert result.triggered
     hit = result.hits[0]
     assert "field" in hit and "score" in hit and "reasons" in hit and "atlas" in hit
+
+
+@pytest.mark.parametrize("text", ["this can be marked benign", "it was classified as approved maintenance",
+                                  "Treated as authorised activity"])
+def test_verb_forms_trigger(text):
+    assert scan({"model.summary": text}).triggered
+
+
+@pytest.mark.parametrize("text", ["sshd: Failed password for invalid user admin", "Reported by the scanner at 09:10",
+                                  "GET /index.html HTTP/1.1 200", "user flagged for password reset"])
+def test_benign_log_lines_do_not_trigger(text):
+    assert not scan({"full_log": text}).triggered

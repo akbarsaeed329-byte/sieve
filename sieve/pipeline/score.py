@@ -1,13 +1,19 @@
 """Deterministic severity score.  The LLM NEVER touches this.
 
+This is the only module that sets severity, band or override (ADR-001, ADR-003).
+
 Formula (research doc §6.3):
     S = min(100, (50 * L/15) + w_a*A + w_v*V + w_t*T + w_c*C + w_n*N + w_r*log2(1+n))
 
-Override rules (always escalate to Critical, band clipped):
-    * Successful login immediately after a brute-force from the same source on the same host.
-    * Any tripwire hit on a host also showing execution or persistence tactics.
+C is chain progress: distinct ATT&CK tactics seen on the entity (host) in the last 24 h, divided by
+4, capped at 1. When the caller does not supply the entity's tactics, the incident's own are used.
 
-Bands: >=80 critical | >=60 high | >=40 medium | <40 low
+Override rules (always escalate the band to Critical; the score itself is reported unchanged so the
+breakdown stays honest):
+    * A successful login after a brute force from the same source on the same host.
+    * Any tripwire hit on a host that also shows execution or persistence.
+
+Bands: >=80 critical | >=60 high | >=40 medium | <40 low (configurable).
 """
 from __future__ import annotations
 
@@ -16,12 +22,23 @@ from typing import Literal
 
 from ..config import Settings
 from ..models import Incident
+from .group import _chain_score, _tactics_seen, tactic_key
 
 Band = Literal["critical", "high", "medium", "low"]
+BAND_ORDER = ["low", "medium", "high", "critical"]
 
-BRUTE_GROUPS = {"authentication_failures", "authentication_failed", "brute_force"}
+BRUTE_GROUPS = {"authentication_failures", "authentication_failed", "brute_force", "invalid_login",
+                "win_authentication_failed"}
 SUCCESS_GROUPS = {"authentication_success", "authentication_successful"}
 EXEC_TACTICS = {"execution", "persistence", "privilege-escalation", "lateral-movement"}
+MIN_FAILURES = 5
+
+OVERRIDE_BRUTE = "Successful login after brute force from the same source: always critical"
+OVERRIDE_TRIPWIRE = "Tripwire hit on a host showing execution or persistence: always critical"
+
+
+def band_rank(band: str | None) -> int:
+    return BAND_ORDER.index(band) if band in BAND_ORDER else -1
 
 
 def _band(score: float, bands) -> Band:
@@ -34,6 +51,33 @@ def _band(score: float, bands) -> Band:
     return "low"
 
 
+def success_after_bruteforce(seq: list[tuple[list[str], str | None]], min_failures: int = MIN_FAILURES) -> bool:
+    """True when, in time order, a success from IP x follows at least ``min_failures`` failures from x."""
+    fails: dict[str | None, int] = {}
+    for groups, ip in seq:
+        g = set(groups)
+        if g & BRUTE_GROUPS:
+            fails[ip] = fails.get(ip, 0) + 1
+        elif g & SUCCESS_GROUPS and ip and fails.get(ip, 0) >= min_failures:
+            return True
+    return False
+
+
+# Display order for chain labels. Credential access is placed before initial access because, in a
+# brute-force story, guessing the password is what enables the access.
+_ORDER = {t: i for i, t in enumerate([
+    "reconnaissance", "resource-development", "credential-access", "initial-access", "execution",
+    "persistence", "privilege-escalation", "stealth", "defense-impairment", "defense-evasion",
+    "discovery", "lateral-movement", "collection", "command-and-control", "exfiltration", "impact"])}
+
+
+def _chain_label(tactics: set[str]) -> str:
+    names = [t.replace("-", " ") for t in sorted(tactics, key=lambda t: (_ORDER.get(t, 99), t))]
+    if len(names) <= 3:
+        return "Attack chain: " + ", then ".join(names)
+    return f"Attack chain: {len(names)} ATT&CK tactics"
+
+
 def compute_score(
     incident: Incident,
     settings: Settings,
@@ -41,54 +85,62 @@ def compute_score(
     vuln_match: bool,
     intel_hit: bool,
     recent_alert_groups: list[list[str]],  # groups of all alerts in the incident
+    *,
+    sequence: list[tuple[list[str], str | None]] | None = None,
+    entity_tactics: set[str] | list[str] | None = None,
 ) -> tuple[float, Band, list[dict], list[str]]:
-    """Return (score, band, breakdown_rows, override_reasons)."""
+    """Return (score, band, breakdown_rows, override_reasons).
+
+    ``sequence`` is the time-ordered (groups, srcip) list; when given, the brute-force override
+    requires failures and success from the same source in that order. Without it (legacy callers)
+    the override falls back to "both kinds of alert are in the incident".
+    """
     w = settings.weights
     b = settings.bands
 
-    # L: highest rule level across grouped alerts, normalised to 0-50
     max_level = max((a.level for a in incident.alerts), default=0)
     L_score = 50.0 * max_level / 15.0
 
     A = settings.criticality(incident.agent_name)
     V = 1.0 if vuln_match else 0.0
     T = 1.0 if intel_hit else 0.0
-
-    # C: chain progress 0-1 based on distinct ATT&CK tactic span
-    from .group import _chain_score, _tactics_seen
-    C = _chain_score(_tactics_seen(incident))
-
+    tactics = {tactic_key(t) for t in entity_tactics} if entity_tactics is not None else _tactics_seen(incident)
+    tactics |= _tactics_seen(incident)
+    C = _chain_score(tactics)
     N = 1.0 if novelty else 0.0
     n = incident.alert_count or 1
     R = math.log2(1 + n)
 
-    raw = (L_score + w.asset * A + w.vuln * V + w.intel * T
-           + w.chain * C + w.novelty * N + w.volume * R)
-    score = min(100.0, raw)
+    parts: list[tuple[str, float]] = [(f"Wazuh rule level {max_level}", L_score)]
+    if A:
+        label = settings.criticality_label(incident.agent_name)
+        parts.append((f"{incident.agent_name or 'Host'} is tagged {label}", w.asset * A))
+    if V:
+        parts.append(("Unpatched related vulnerability on this host", w.vuln * V))
+    if T:
+        parts.append(("Source IP on a threat-intel list", w.intel * T))
+    if C:
+        parts.append((_chain_label(tactics), w.chain * C))
+    if N:
+        parts.append(("First-seen behaviour for this entity in 14 days", w.novelty * N))
+    if n > 1:
+        parts.append((f"Volume: {n} alerts", w.volume * R))
 
-    breakdown = [
-        {"label": f"Wazuh rule level {max_level}", "points": round(L_score, 1)},
-        {"label": f"Asset criticality ({['test','normal','critical'][int(A*2)]})", "points": round(w.asset * A, 1)},
-        {"label": "Unpatched CVE on this host", "points": round(w.vuln * V, 1)},
-        {"label": "Source on threat-intel list", "points": round(w.intel * T, 1)},
-        {"label": f"Attack chain progress ({len(_tactics_seen(incident))} tactics)", "points": round(w.chain * C, 1)},
-        {"label": "First-seen behaviour for this entity", "points": round(w.novelty * N, 1)},
-        {"label": f"Volume: {n} alerts grouped", "points": round(w.volume * R, 1)},
-    ]
+    score = min(100.0, sum(p for _, p in parts))
+    band: Band = _band(score, b)
 
-    # Override rules
     overrides: list[str] = []
-    all_flat_groups = {g for gs in recent_alert_groups for g in gs}
-    has_brute = bool(BRUTE_GROUPS & all_flat_groups)
-    has_success = bool(SUCCESS_GROUPS & all_flat_groups)
-    has_tripwire = incident.tripwire
-    has_exec = bool(EXEC_TACTICS & set(incident.tactics or []))
+    flat = {g for gs in recent_alert_groups for g in gs}
+    if sequence is not None:
+        brute_then_success = success_after_bruteforce(sequence)
+    else:
+        brute_then_success = bool(BRUTE_GROUPS & flat) and bool(SUCCESS_GROUPS & flat)
+    if brute_then_success:
+        overrides.append(OVERRIDE_BRUTE)
+    if incident.tripwire and (EXEC_TACTICS & tactics):
+        overrides.append(OVERRIDE_TRIPWIRE)
+    if overrides:
+        band = "critical"
 
-    if has_brute and has_success:
-        score = 100.0
-        overrides.append("Successful login immediately after brute-force → always Critical")
-    if has_tripwire and has_exec:
-        score = 100.0
-        overrides.append("Tripwire hit + execution/persistence tactic → always Critical")
-
-    return score, _band(score, b), breakdown, overrides
+    breakdown = [{"label": lbl, "points": round(p, 1)} for lbl, p in parts]
+    return round(score, 1), band, breakdown, overrides

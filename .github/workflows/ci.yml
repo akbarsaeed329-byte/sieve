@@ -1,9 +1,8 @@
 name: CI
-
 on:
-  push:
-    branches: [main, dev]
+  push: { branches: [main, dev] }
   pull_request:
+permissions: { contents: read }
 
 jobs:
   test:
@@ -11,18 +10,42 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+        with: { python-version: "3.12" }
       - run: pip install -e ".[dev]"
-      - run: ruff check sieve tests
-      - run: pytest -v --tb=short
+      - run: ruff check sieve tests benchmark
+      - run: pytest -q --cov=sieve.pipeline --cov=sieve.llm --cov-fail-under=80
 
-  security-scan:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: sieve/web/package-lock.json }
+      - run: npm ci --no-audit --no-fund
+        working-directory: sieve/web
+      - run: npm run build
+        working-directory: sieve/web
+      - name: Bundle budget (300 KB gzipped JS, research doc 10.5)
+        run: test $(find sieve/web/build -name '*.js' | xargs cat | gzip -c | wc -c) -lt 307200
+
+  benchmark:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: pip install pip-audit
-      - run: pip-audit -r pyproject.toml --ignore-vuln GHSA-placeholder
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev]"
+      - name: PoisonedLogs (mock, worst-case model); fails if any injection lowers a band
+        run: python benchmark/generate.py && python benchmark/run.py --name ci
+      - uses: actions/upload-artifact@v4
+        with: { name: benchmark, path: benchmark/results/ }
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pip-audit && pip install -e .
+      - run: pip-audit
+      - run: cd sieve/web && npm audit --omit=dev --audit-level=high

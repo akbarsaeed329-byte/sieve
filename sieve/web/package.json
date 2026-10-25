@@ -1,0 +1,23 @@
+{
+  "name": "sieve-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "check": "svelte-check"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "3.0.8",
+    "@sveltejs/kit": "2.21.1",
+    "@sveltejs/vite-plugin-svelte": "5.0.3",
+    "svelte": "5.33.1",
+    "vite": "6.3.5"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "5.2.5",
+    "@fontsource/ibm-plex-sans": "5.2.5",
+    "cytoscape": "3.32.0"
+  }
+}

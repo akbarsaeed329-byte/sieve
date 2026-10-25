@@ -1,33 +1,38 @@
-"""Simple Prometheus-compatible plain-text metrics endpoint."""
+"""Prometheus-compatible metrics (no auth; bind to localhost or protect at the proxy)."""
+from __future__ import annotations
+
 from fastapi import APIRouter
-from sqlalchemy import func
+from fastapi.responses import PlainTextResponse
+from sqlalchemy import func, select
+
 from ..db import SessionLocal
-from ..models import Incident, QueueItem, Suppression
+from ..models import Incident, LlmCall, Notification, Suppression
+from ..worker import Stats, queue_depth
 
 router = APIRouter(tags=["Metrics"])
 
 
-@router.get("/metrics", response_class=__import__("fastapi").responses.PlainTextResponse)
+@router.get("/metrics", response_class=PlainTextResponse)
 def prometheus_metrics():
     with SessionLocal() as db:
-        total_inc = db.query(func.count(Incident.id)).scalar() or 0
-        open_inc = db.query(func.count(Incident.id)).filter(
-            Incident.status.in_(["new", "acknowledged"])).scalar() or 0
-        suppressed = db.query(func.count(Suppression.id)).scalar() or 0
-        queue_pending = db.query(func.count(QueueItem.id)).filter(
-            QueueItem.status == "pending").scalar() or 0
-    lines = [
-        "# HELP sieve_incidents_total Total incidents created",
-        "# TYPE sieve_incidents_total counter",
-        f"sieve_incidents_total {total_inc}",
-        "# HELP sieve_incidents_open Currently open incidents",
-        "# TYPE sieve_incidents_open gauge",
-        f"sieve_incidents_open {open_inc}",
-        "# HELP sieve_alerts_suppressed_total Total suppressed alerts",
-        "# TYPE sieve_alerts_suppressed_total counter",
-        f"sieve_alerts_suppressed_total {suppressed}",
-        "# HELP sieve_queue_pending Alerts waiting to be processed",
-        "# TYPE sieve_queue_pending gauge",
-        f"sieve_queue_pending {queue_pending}",
-    ]
+        inc = db.scalar(select(func.count(Incident.id))) or 0
+        open_ = db.scalar(select(func.count(Incident.id)).where(Incident.status.in_(("new", "acknowledged")))) or 0
+        supp = db.scalar(select(func.count(Suppression.id))) or 0
+        n_ok = db.scalar(select(func.count(Notification.id)).where(Notification.ok.is_(True))) or 0
+        n_fail = db.scalar(select(func.count(Notification.id)).where(Notification.ok.is_(False))) or 0
+        llm_ok = db.scalar(select(func.count(LlmCall.id)).where(LlmCall.ok.is_(True))) or 0
+        llm_fail = db.scalar(select(func.count(LlmCall.id)).where(LlmCall.ok.is_(False))) or 0
+        tokens = db.scalar(select(func.coalesce(func.sum(LlmCall.tokens), 0))) or 0
+    q = queue_depth()
+    p = sorted(Stats.first_notify_ms)
+    p95 = p[max(0, int(len(p) * 0.95) - 1)] if p else 0
+    m = [("sieve_incidents_total", "counter", inc), ("sieve_incidents_open", "gauge", open_),
+         ("sieve_alerts_suppressed_total", "counter", supp), ("sieve_queue_pending", "gauge", q["pending"]),
+         ("sieve_queue_failed", "gauge", q["failed"]), ("sieve_notifications_total", "counter", n_ok),
+         ("sieve_notification_failures_total", "counter", n_fail), ("sieve_llm_calls_total", "counter", llm_ok),
+         ("sieve_llm_failures_total", "counter", llm_fail), ("sieve_llm_tokens_total", "counter", tokens),
+         ("sieve_alerts_processed_total", "counter", Stats.alerts), ("sieve_first_notify_p95_ms", "gauge", p95)]
+    lines = []
+    for name, kind, v in m:
+        lines += [f"# TYPE {name} {kind}", f"{name} {v}"]
     return "\n".join(lines) + "\n"

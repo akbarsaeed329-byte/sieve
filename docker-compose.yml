@@ -1,57 +1,48 @@
+# docker compose up -d                  -> Sieve only (rule-based; add a cloud model in Settings if you like)
+# docker compose --profile ai up -d     -> Sieve + a local Ollama model server
+# docker compose --profile demo up      -> load demo alerts into the same data volume
 services:
-
   sieve:
     build: .
+    image: ghcr.io/sieve-project/sieve:0.1.0
     container_name: sieve
     ports:
-      - "8080:8080"
+      - "127.0.0.1:8080:8080"          # localhost only; put a TLS reverse proxy in front for remote access
     volumes:
       - sieve-data:/app/data
       - ./config:/app/config:ro
     environment:
       - SIEVE_CONFIG=/app/config/sieve.yaml
-      # Set these in a .env file (never commit secrets):
-      # SIEVE_TELEGRAM_TOKEN=...
-      # SIEVE_CLOUD_API_KEY=...
+    env_file:
+      - path: .env
+        required: false
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     restart: unless-stopped
-    depends_on:
-      ollama:
-        condition: service_healthy
-    networks:
-      - sieve-net
+    networks: [sieve-net]
 
   ollama:
-    image: ollama/ollama:latest
+    image: ollama/ollama:0.6.8
     container_name: ollama
+    profiles: ["ai"]
     volumes:
       - ollama-models:/root/.ollama
-    expose:
-      - "11434"
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+    expose: ["11434"]
     restart: unless-stopped
-    networks:
-      - sieve-net
+    networks: [sieve-net]
 
-  # Demo profile: inject sample alerts without a real Wazuh
   sieve-demo:
     build: .
-    container_name: sieve-demo
     profiles: ["demo"]
-    command: sieve demo
+    command: ["sieve", "demo", "--no-serve"]
     volumes:
       - sieve-data:/app/data
       - ./config:/app/config:ro
     environment:
       - SIEVE_CONFIG=/app/config/sieve.yaml
-    depends_on:
-      - sieve
-    networks:
-      - sieve-net
+    networks: [sieve-net]
 
 volumes:
   sieve-data:
@@ -59,4 +50,3 @@ volumes:
 
 networks:
   sieve-net:
-    driver: bridge

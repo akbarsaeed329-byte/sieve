@@ -1,72 +1,66 @@
-# Sieve configuration reference.  Copy to config/sieve.yaml and edit.
-# Secrets (tokens, passwords) belong in environment variables, not here.
+# Sieve configuration reference. Copy to config/sieve.yaml and edit.
+# Secrets (tokens, passwords, API keys) never go here: use .env or Settings in the web app (stored encrypted).
+# Changes made in the web app are saved to <data_dir>/settings.override.yaml and win over this file.
 
 data_dir: ./data
-bind_host: "127.0.0.1"
+bind_host: "127.0.0.1"        # keep local; use 0.0.0.0 only behind a reverse proxy with HTTPS
 port: 8080
-# secret_key and ingest_token are auto-generated on first run and stored in data/.
-# You can override them with SIEVE_SECRET_KEY and SIEVE_INGEST_TOKEN env vars.
+# secret_key and ingest_token are generated on first run and stored in data/ (0600).
+# Override with SIEVE_SECRET_KEY / SIEVE_INGEST_TOKEN. Print the token with: sieve token
 
 filter:
-  min_level: 5
-  allow_rule_ids: []      # rule IDs whose alerts are always suppressed with a reason
-  allow_srcips: []        # known-good source IPs (e.g. your vulnerability scanner)
+  min_level: 5                # below this: suppressed with a reason, unless it continues an open incident
+  allow_rule_ids: []          # always suppressed (with reason)
+  allow_srcips: []            # e.g. your approved vulnerability scanner
 
 grouping:
-  window_minutes: 10
-  max_minutes: 120
+  window_minutes: 10          # extended by each new alert
+  max_minutes: 120            # an incident never spans more than this
 
-weights:
-  asset: 15.0
-  vuln: 10.0
-  intel: 10.0
-  chain: 20.0
-  novelty: 10.0
-  volume: 2.0
-
-bands:
-  critical: 80
-  high: 60
-  medium: 40
-
+weights: { asset: 15, vuln: 10, intel: 10, chain: 20, novelty: 10, volume: 2 }   # research doc 6.3
+bands: { critical: 80, high: 60, medium: 40 }
 tripwire_threshold: 1.0
+
+assets:                       # A term of the score; criticality: critical | normal | test
+  - { agent_name: dc-01, criticality: critical, owner: IT }
+  - { agent_name: web-01, criticality: critical, owner: Web team }
+
+intel:
+  blocklist_ips: []           # offline list
+  abuseipdb_key_env: SIEVE_ABUSEIPDB_KEY   # when set, AbuseIPDB lookups replace the offline list
+  abuseipdb_min_score: 50
+  abuseipdb_daily_limit: 1000
+  cache_minutes: 60
+
+wazuh:                        # optional, read-only: investigation checks, "Show query", coverage map
+  api_url: ""                 # https://wazuh.manager:55000
+  indexer_url: ""             # https://wazuh.indexer:9200
+  dashboard_url: ""           # https://wazuh.local
+  username: wazuh-wui
+  password_env: SIEVE_WAZUH_PASSWORD
+  indexer_username: admin
+  indexer_password_env: SIEVE_WAZUH_INDEXER_PASSWORD
+  verify_tls: true
 
 llm:
   enabled: true
-  min_band: medium          # only call the LLM for medium+ incidents
-  calls_per_hour: 60
-  mask_for_cloud: true      # replace usernames and IPs before sending to a cloud API
-  providers:
-    - name: local-ollama
-      kind: ollama
-      base_url: "http://ollama:11434"
-      model: "llama3.1:8b"
-      timeout_s: 90
-      is_cloud: false
-    # Uncomment to add a free cloud fallback (key in env var SIEVE_CLOUD_API_KEY):
-    # - name: groq-free
-    #   kind: openai_compatible
-    #   base_url: "https://api.groq.com/openai/v1"
-    #   model: "llama3-8b-8192"
-    #   api_key_env: SIEVE_CLOUD_API_KEY
-    #   timeout_s: 30
-    #   is_cloud: true
+  min_band: medium            # only medium+ incidents reach a model
+  calls_per_hour: 60          # shared by all providers
+  mask_for_cloud: true        # IPs, users and hosts become tokens before any cloud call
+  investigate_critical: true  # read-only checks for critical incidents (run even with AI off)
+  providers:                  # fallback order; "no AI" is always the last resort
+    - { name: local-ollama, kind: ollama, base_url: "http://ollama:11434", model: "llama3.1:8b", timeout_s: 90 }
+    # - { name: free-cloud, kind: openai_compatible, base_url: "https://YOUR-PROVIDER/v1", model: "YOUR-MODEL",
+    #     api_key_env: SIEVE_CLOUD_API_KEY, is_cloud: true, timeout_s: 30 }
 
 notify:
-  min_band: high
+  min_band: high              # tripwire hits always notify
   console: true
   public_url: "http://localhost:8080"
-  telegram:
-    enabled: false
-    chat_id: ""
-    token_env: SIEVE_TELEGRAM_TOKEN
+  telegram: { enabled: false, chat_id: "", token_env: SIEVE_TELEGRAM_TOKEN }
+  slack: { enabled: false, channel: "", token_env: SIEVE_SLACK_TOKEN, webhook_env: SIEVE_SLACK_WEBHOOK }
+  discord: { enabled: false, webhook_env: SIEVE_DISCORD_WEBHOOK }
+  digest: { enabled: false, hour_utc: 7, version: manager }
 
-intel:
-  blocklist_ips: []         # offline blocklist; AbuseIPDB plugin adds live lookups
-  abuseipdb_key_env: null
-
-assets:
-  - agent_name: "dc-01"
-    criticality: critical
-  - agent_name: "web-01"
-    criticality: critical
+shadow_mode: false            # triage and record, send nothing: validate Sieve on a new network first
+allow_active_response: false  # Wazuh firewall-drop / disable-account; each run needs an admin's confirmation

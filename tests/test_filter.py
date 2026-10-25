@@ -11,7 +11,6 @@ _BASE = {
 
 
 def _settings(**kw):
-    import copy
     s = load_settings()
     for k, v in kw.items():
         setattr(s.filter, k, v)

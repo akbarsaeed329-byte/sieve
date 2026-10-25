@@ -1,6 +1,0 @@
-id: PB-NEWADMIN
-title: New or changed privileged account
-steps:
-  - {id: PB-NEWADMIN-01, text: "Confirm with the owner whether the account was expected", approval: false}
-  - {id: PB-NEWADMIN-02, text: "Disable the account if nobody can confirm it", approval: true}
-  - {id: PB-NEWADMIN-03, text: "Review what the creating account did in the last 24 hours", approval: false}

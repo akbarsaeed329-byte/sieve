@@ -10,6 +10,7 @@ steps:
     title: Lock or remove the account if unauthorised
     detail: "Run: passwd -l {user}  then audit its group memberships."
     requires_approval: true
+    active_response: "disable-account"
   - id: PB-NEWADMIN-03
     title: Review who created it
     detail: "Check audit logs for the parent process that ran useradd/net user."
