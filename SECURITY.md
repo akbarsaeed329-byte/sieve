@@ -10,16 +10,17 @@ The latest release on `main` is the only supported version.
 
 **Do not open a public GitHub issue.**
 
-Email **security@sieve-project.example** (replace with your real address) with:
+Report it privately through GitHub: open the **Security** tab of this repository and click
+**Report a vulnerability** (https://github.com/akbarsaeed329-byte/sieve/security/advisories/new). Include:
 
 - A description of the vulnerability
 - Steps to reproduce
 - Affected version
 - Potential impact
 
-We aim to acknowledge within 48 hours and issue a fix within 14 days for critical issues.
-
-Contributors who responsibly disclose vulnerabilities are listed in `HALL_OF_FAME.md`.
+Sieve is maintained by one person during an alpha. Expect an acknowledgement within 7 days; critical issues are
+fixed first. Please allow reasonable time for a fix before public disclosure. Reporters are credited in the
+release notes unless they prefer otherwise.
 
 ## Known design choices and trade-offs
 

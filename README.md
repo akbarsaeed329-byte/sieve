@@ -4,6 +4,8 @@
   <strong>Turns thousands of raw alerts into a few evidence-backed incidents, and cannot be talked out of a severity.</strong>
 </p>
 
+> **Status: alpha.** Tested against stand-ins and synthetic data; real-lab validation in progress. Not for production use yet.
+
 ---
 
 ## What Sieve does

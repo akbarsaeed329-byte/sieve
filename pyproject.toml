@@ -8,6 +8,7 @@ version = "0.5.0"
 description = "Free, local-first, injection-hardened triage layer for Wazuh alerts"
 readme = "README.md"
 license = { text = "Apache-2.0" }
+authors = [{ name = "Saeed Akbar" }]
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.110",
@@ -48,3 +49,8 @@ filterwarnings = ["ignore::DeprecationWarning"]
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 ignore = ["B008"]  # FastAPI dependencies are declared as argument defaults by design
+
+[project.urls]
+Homepage = "https://github.com/akbarsaeed329-byte/sieve"
+Issues = "https://github.com/akbarsaeed329-byte/sieve/issues"
+Changelog = "https://github.com/akbarsaeed329-byte/sieve/blob/main/CHANGELOG.md"

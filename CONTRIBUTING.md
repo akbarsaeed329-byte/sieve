@@ -5,7 +5,7 @@ Thank you for helping make SOC tooling safer and more accessible.
 ## How to get started
 
 ```bash
-git clone https://github.com/yourhandle/sieve
+git clone https://github.com/akbarsaeed329-byte/sieve
 cd sieve
 pip install -e ".[dev]"
 cp config/sieve.example.yaml config/sieve.yaml

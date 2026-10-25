@@ -2,7 +2,7 @@
 
 ## 1. Get it
 ```bash
-git clone https://github.com/<your-org>/sieve.git && cd sieve
+git clone https://github.com/akbarsaeed329-byte/sieve.git && cd sieve
 make setup            # creates config/sieve.yaml and .env from the examples
 ```
 

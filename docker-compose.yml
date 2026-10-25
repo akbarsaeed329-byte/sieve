@@ -4,7 +4,7 @@
 services:
   sieve:
     build: .
-    image: ghcr.io/sieve-project/sieve:0.1.0
+    image: ghcr.io/akbarsaeed329-byte/sieve:latest
     container_name: sieve
     ports:
       - "127.0.0.1:8080:8080"          # localhost only; put a TLS reverse proxy in front for remote access
