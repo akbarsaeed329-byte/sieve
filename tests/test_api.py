@@ -280,3 +280,11 @@ def test_selftest_alert_always_notifies(client, settings):
     assert st["processed"] and st["notifications"] and st["notifications"][0]["ok"]
     with SessionLocal() as db:
         assert db.scalars(select(Notification)).first().channel == "console"
+
+
+def test_selftest_never_in_needs_you(client, settings):
+    from sieve.worker import run_once
+    c = signed_in(client)
+    c.post("/api/setup/test-alert")
+    run(run_once())
+    assert all(not i["is_selftest"] for i in c.get("/api/stats").json()["needs_you"])

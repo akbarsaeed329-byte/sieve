@@ -51,7 +51,7 @@ def stats(tenant: int | None = None, user=Depends(viewer)):
         notes = db.scalar(select(func.count(func.distinct(Notification.incident_id))).where(
             Notification.at >= since, Notification.phase == "send", Notification.ok.is_(True),
             Notification.shadow.is_(False), Notification.incident_id.in_(inc_ids))) or 0
-        need = db.scalars(scoped(select(Incident).where(Incident.status == "new").where(
+        need = db.scalars(scoped(select(Incident).where(Incident.status == "new", Incident.is_selftest.is_(False)).where(
             (Incident.band.in_(("critical", "high"))) | Incident.tripwire.is_(True)), Incident.tenant_id, user, tenant)).all()
         acked = db.scalars(scoped(select(Incident).where(Incident.acknowledged_at >= utcnow() - timedelta(days=7)),
                                   Incident.tenant_id, user, tenant)).all()
