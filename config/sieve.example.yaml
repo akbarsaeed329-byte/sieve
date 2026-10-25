@@ -1,0 +1,72 @@
+# Sieve configuration reference.  Copy to config/sieve.yaml and edit.
+# Secrets (tokens, passwords) belong in environment variables, not here.
+
+data_dir: ./data
+bind_host: "127.0.0.1"
+port: 8080
+# secret_key and ingest_token are auto-generated on first run and stored in data/.
+# You can override them with SIEVE_SECRET_KEY and SIEVE_INGEST_TOKEN env vars.
+
+filter:
+  min_level: 5
+  allow_rule_ids: []      # rule IDs whose alerts are always suppressed with a reason
+  allow_srcips: []        # known-good source IPs (e.g. your vulnerability scanner)
+
+grouping:
+  window_minutes: 10
+  max_minutes: 120
+
+weights:
+  asset: 15.0
+  vuln: 10.0
+  intel: 10.0
+  chain: 20.0
+  novelty: 10.0
+  volume: 2.0
+
+bands:
+  critical: 80
+  high: 60
+  medium: 40
+
+tripwire_threshold: 1.0
+
+llm:
+  enabled: true
+  min_band: medium          # only call the LLM for medium+ incidents
+  calls_per_hour: 60
+  mask_for_cloud: true      # replace usernames and IPs before sending to a cloud API
+  providers:
+    - name: local-ollama
+      kind: ollama
+      base_url: "http://ollama:11434"
+      model: "llama3.1:8b"
+      timeout_s: 90
+      is_cloud: false
+    # Uncomment to add a free cloud fallback (key in env var SIEVE_CLOUD_API_KEY):
+    # - name: groq-free
+    #   kind: openai_compatible
+    #   base_url: "https://api.groq.com/openai/v1"
+    #   model: "llama3-8b-8192"
+    #   api_key_env: SIEVE_CLOUD_API_KEY
+    #   timeout_s: 30
+    #   is_cloud: true
+
+notify:
+  min_band: high
+  console: true
+  public_url: "http://localhost:8080"
+  telegram:
+    enabled: false
+    chat_id: ""
+    token_env: SIEVE_TELEGRAM_TOKEN
+
+intel:
+  blocklist_ips: []         # offline blocklist; AbuseIPDB plugin adds live lookups
+  abuseipdb_key_env: null
+
+assets:
+  - agent_name: "dc-01"
+    criticality: critical
+  - agent_name: "web-01"
+    criticality: critical

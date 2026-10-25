@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sieve-triage"
+version = "0.0.1"
+description = "Free, local-first, injection-hardened triage layer for Wazuh alerts"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.110",
+  "uvicorn[standard]>=0.27",
+  "pydantic>=2.6",
+  "pyyaml>=6.0",
+  "sqlalchemy>=2.0",
+  "argon2-cffi>=23.1",
+  "itsdangerous>=2.1",
+  "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "ruff>=0.4"]
+
+[project.scripts]
+sieve = "sieve.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sieve*"]
+
+[tool.setuptools.package-data]
+sieve = ["web/static/*", "playbooks/*.yaml"]
+
+[tool.ruff]
+line-length = 130
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["B008"]  # FastAPI dependencies are declared as argument defaults by design

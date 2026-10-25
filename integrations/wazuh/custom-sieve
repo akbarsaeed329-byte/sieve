@@ -1,0 +1,14 @@
+#!/bin/sh
+# Wazuh integration wrapper. Copy both files to /var/ossec/integrations/ on the Wazuh manager:
+#   chmod 750 custom-sieve custom-sieve.py && chown root:wazuh custom-sieve custom-sieve.py
+WPYTHON_BIN="framework/python/bin/python3"
+SCRIPT_PATH_NAME="$0"
+DIR_NAME="$(cd "$(dirname "${SCRIPT_PATH_NAME}")" && pwd -P)"
+SCRIPT_NAME="$(basename "${SCRIPT_PATH_NAME}")"
+case ${DIR_NAME} in
+  */active-response/bin | */wodles*) WAZUH_PATH="$(cd "${DIR_NAME}/../.." && pwd -P)";;
+  */bin) WAZUH_PATH="$(cd "${DIR_NAME}/.." && pwd -P)";;
+  */integrations) WAZUH_PATH="$(cd "${DIR_NAME}/.." && pwd -P)";;
+esac
+PYTHON_SCRIPT="${DIR_NAME}/${SCRIPT_NAME}.py"
+exec "${WAZUH_PATH}/${WPYTHON_BIN}" "${PYTHON_SCRIPT}" "$@"

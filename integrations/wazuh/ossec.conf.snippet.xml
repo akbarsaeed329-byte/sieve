@@ -1,0 +1,8 @@
+<!-- Add inside <ossec_config> on the Wazuh manager, then: systemctl restart wazuh-manager -->
+<integration>
+  <name>custom-sieve</name>
+  <hook_url>http://SIEVE_HOST:8080/api/ingest/wazuh</hook_url>
+  <api_key>PASTE_OUTPUT_OF_sieve_token</api_key>
+  <level>3</level>
+  <alert_format>json</alert_format>
+</integration>

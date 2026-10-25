@@ -1,0 +1,5 @@
+id: PB-GENERIC
+title: General triage
+steps:
+  - {id: PB-GENERIC-01, text: "Read the evidence and confirm what happened", approval: false}
+  - {id: PB-GENERIC-02, text: "Decide: resolve, mark false positive, or escalate", approval: false}

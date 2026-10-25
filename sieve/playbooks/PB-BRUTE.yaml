@@ -1,0 +1,25 @@
+id: PB-BRUTE
+title: Brute-force or credential-stuffing attack
+mitre: [T1110, T1110.001, T1110.002, T1110.003]
+steps:
+  - id: PB-BRUTE-01
+    title: Reset the targeted user's password
+    detail: "Immediately change credentials for {user} on {agent_name}."
+    requires_approval: false
+  - id: PB-BRUTE-02
+    title: End active sessions
+    detail: "Kill all active SSH/RDP sessions from {srcip} on {agent_name}."
+    requires_approval: false
+  - id: PB-BRUTE-03
+    title: Check blast radius
+    detail: "Search all agents for logins from {srcip} in the last 24 hours."
+    requires_approval: false
+  - id: PB-BRUTE-04
+    title: Review account activity
+    detail: "Audit what {user} did after the successful login."
+    requires_approval: false
+  - id: PB-BRUTE-05
+    title: Block source IP at firewall
+    detail: "Add {srcip} to the firewall blocklist."
+    requires_approval: true
+    active_response: "firewall-drop"

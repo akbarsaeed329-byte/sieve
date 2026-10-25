@@ -1,0 +1,6 @@
+id: PB-WEBSCAN
+title: Web scanning or attack attempts
+steps:
+  - {id: PB-WEBSCAN-01, text: "Check for any 200 responses to attack URLs", approval: false}
+  - {id: PB-WEBSCAN-02, text: "Confirm the web app and server are patched", approval: false}
+  - {id: PB-WEBSCAN-03, text: "Rate-limit or block the source", approval: true}

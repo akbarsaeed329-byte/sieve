@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sieve</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div class="app">
+  <nav class="nav" aria-label="Main" id="nav" hidden>
+    <div class="brand">
+      <svg width="28" height="28" viewBox="0 0 28 28" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="14" cy="14" r="11"/><path d="M6 11h16M5 15h18M7 19h14M11 4v20M17 4v20"/></svg>
+      <span>Sieve</span>
+    </div>
+    <a href="#/overview" data-route="overview">Overview</a>
+    <a href="#/hidden" data-route="hidden">Hidden alerts</a>
+    <a href="#/health" data-route="health">Health</a>
+    <div class="health-mini" id="health-mini"></div>
+    <button type="button" class="btn ghost" id="logout">Sign out</button>
+  </nav>
+  <main class="main" id="main" tabindex="-1"><p class="muted">Loading…</p></main>
+</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<script src="/static/app.js"></script>
+</body>
+</html>
