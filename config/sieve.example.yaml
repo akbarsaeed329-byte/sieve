@@ -41,6 +41,8 @@ wazuh:                        # optional, read-only: investigation checks, "Show
   indexer_username: admin
   indexer_password_env: SIEVE_WAZUH_INDEXER_PASSWORD
   verify_tls: true
+  pull_enabled: false        # true: read alerts from the indexer; nothing to install on the manager
+  pull_interval_s: 15
 
 llm:
   enabled: true
@@ -61,6 +63,15 @@ notify:
   slack: { enabled: false, channel: "", token_env: SIEVE_SLACK_TOKEN, webhook_env: SIEVE_SLACK_WEBHOOK }
   discord: { enabled: false, webhook_env: SIEVE_DISCORD_WEBHOOK }
   digest: { enabled: false, hour_utc: 7, version: manager }
+  email: { enabled: false, host: "", port: 587, starttls: true, username: "", password_env: SIEVE_SMTP_PASSWORD, sender: "", to: [] }
+
+sla: { critical: 15, high: 60, medium: 480, low: 1440, escalate: true }   # minutes to acknowledge
+retention: { alerts_days: 90, llm_calls_days: 30 }                         # incidents and audit are kept
+require_2fa_for_admins: false
+
+webhooks: []   # - { name: soar, url: "https://…", secret_env: SIEVE_WEBHOOK_SECRET, min_band: high }
+jira: { enabled: false, base_url: "", email: "", token_env: SIEVE_JIRA_TOKEN, project_key: "", issue_type: Task, min_band: high }
+thehive: { enabled: false, base_url: "", token_env: SIEVE_THEHIVE_TOKEN, min_band: high }
 
 shadow_mode: false            # triage and record, send nothing: validate Sieve on a new network first
 allow_active_response: false  # Wazuh firewall-drop / disable-account; each run needs an admin's confirmation

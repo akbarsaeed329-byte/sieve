@@ -46,6 +46,7 @@
 
   // Load health as soon as someone is signed in (not only on the 30 s timer).
   $effect(() => { if (app.me) refreshHealth(); });
+  $effect(() => { if (app.me?.must_enroll_2fa && !page.url.pathname.startsWith('/settings/security')) goto('/settings/security'); });
 
   async function logout() { await post('/api/auth/logout').catch(() => {}); app.me = null; goto('/login'); }
 
@@ -53,8 +54,9 @@
     { href: '/', label: 'Overview' },
     { href: '/incidents', label: 'Incidents' },
     ...(app.advanced ? [{ href: '/investigate', label: 'Investigate' }, { href: '/coverage', label: 'Coverage' },
-      { href: '/reports', label: 'Metrics' }] : []),
+      { href: '/reports', label: 'Metrics' }, { href: '/tuning', label: 'Tuning' }] : []),
     { href: '/hidden', label: 'Hidden alerts' },
+    { href: '/summary', label: 'Reports' },
     { href: '/health', label: 'Health' },
     ...(app.me?.role === 'admin' ? [{ href: '/settings/integrations', label: 'Settings' }] : [])
   ]);

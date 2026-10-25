@@ -6,7 +6,7 @@ import json
 
 from fastapi import APIRouter, Request
 
-from .. import runtime
+from .. import ratelimit, runtime
 from ..errors import INGEST_BAD_PAYLOAD, INGEST_BAD_TOKEN, INGEST_TOO_LARGE, SieveError
 from ..worker import enqueue
 
@@ -25,6 +25,7 @@ def _token_ok(request: Request, expected: str) -> bool:
 @router.post("/api/ingest/wazuh", status_code=202)
 async def ingest_alert(request: Request):
     s = runtime.current()
+    ratelimit.check("ingest", request.client.host if request.client else "?")
     if not _token_ok(request, s.ingest_token):
         raise SieveError(INGEST_BAD_TOKEN, "Ingest token missing or wrong.", status=401)
     body = await request.body()

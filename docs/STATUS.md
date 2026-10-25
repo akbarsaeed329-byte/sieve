@@ -1,4 +1,4 @@
-# Status: what exists vs. the plan (v0.1.0.dev0, 2026-10-17)
+# Status: what exists vs. the plan (v0.2.0, 2026-10-18)
 
 done = works and is tested; partial = works with stated limits; todo = not started. Item numbers refer to
 MASTER_AI_PROMPT.md.
@@ -20,7 +20,7 @@ MASTER_AI_PROMPT.md.
 | 2.4 AbuseIPDB enricher (cache, daily limit, partial context) | done | OTX and abuse.ch todo |
 | 2.5 Rolling 14-day novelty (logins, processes) | done | country and quiet-hour baselines todo |
 | 2.6 Hypothesis investigation (templates only, 6-call cap) | done | ADR-009; checks run without AI too |
-| 2.7 Slack (Block Kit, bot or webhook) and Discord | done | email (SMTP) todo |
+| 2.7 Slack (Block Kit, bot or webhook), Discord, email | done | |
 | 2.8 Wazuh active response (off by default, confirm, audited) | done | tested with mocked Wazuh API only |
 | 2.9 NIS2 early-warning draft (24 h / 72 h / 1 month) | done | drafting aid; never sent |
 | 2.10 Shadow mode + human band + agreement (kappa) | done | |
@@ -30,11 +30,19 @@ MASTER_AI_PROMPT.md.
 | 3.4 Entity graph (Cytoscape, bundled, lazy) | done | |
 | 3.5 STIX 2.1 export | done | TheHive / MISP plugins todo |
 | 3.6 Manager and technical digest (daily) | done | |
+| Case management: owner, notes, tags, SLA, escalation, merge | done | v0.2 |
+| False-positive feedback → scoped expiring exceptions; tuning page | done | v0.2 |
+| Maintenance windows | done | v0.2 |
+| Executive report, shift handover | done | v0.2 |
+| Signed webhooks, Jira, TheHive, email, API tokens | done | v0.2 |
+| 2FA (TOTP), admin 2FA policy, rate limits, retention, backup command | done | v0.2 |
+| Wazuh indexer pull mode | done | v0.2 |
 | Plugin SDK out-of-process | todo | ADR-006 (in-process with containment for now) |
-| TOTP, SSO | todo | |
-| Wazuh indexer pull mode | todo | push integration only |
+| SSO (OIDC/SAML) | todo | |
 | Alembic migrations | todo | ADR-005 (additive migrations for 0.x) |
 | Real-model benchmark, ablations, usability study | todo | needs the Phase-0 lab |
 
 Open question for maintainers: default weights notify only 58% of seed true attacks (single-alert attacks score
 Medium). Tune on lab data or lower `notify.min_band`; see docs/EVALUATION.md.
+
+| Multi-tenant (MSSP) | todo | |

@@ -29,7 +29,8 @@
   {/if}
 </div>
 <style>
-  .matrix { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 6px; overflow-x: auto; padding-bottom: 8px; }
+  .matrix { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 6px; overflow-x: auto; padding-bottom: 8px;
+    width: 100%; max-width: 100%; min-width: 0; position: relative; }
   .col { display: flex; flex-direction: column; gap: 3px; }
   .col h3 { font-size: 12px; min-height: 32px; }
   .cell { font-size: 11px; line-height: 1.3; padding: 4px 6px; border-radius: 4px; text-decoration: none; color: var(--ink); border: 1px solid var(--line); }

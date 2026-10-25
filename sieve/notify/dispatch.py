@@ -15,6 +15,7 @@ from ..db import SessionLocal
 from ..models import Incident, Notification, aware, utcnow
 from .console import ConsoleNotifier
 from .discord import DiscordNotifier
+from .email import EmailNotifier
 from .slack import SlackNotifier
 from .telegram import TelegramNotifier
 
@@ -30,6 +31,8 @@ def build_notifiers(settings: Settings) -> list:
         out.append(SlackNotifier(settings))
     if settings.notify.discord.enabled:
         out.append(DiscordNotifier(settings))
+    if settings.notify.email.enabled:
+        out.append(EmailNotifier(settings))
     if settings.notify.console or not out:
         out.append(ConsoleNotifier())
     return out
@@ -100,5 +103,5 @@ async def send_text(text: str, settings: Settings, phase: str = "digest", only: 
 
 
 def channel_for(name: str, settings: Settings):
-    return {"telegram": TelegramNotifier, "slack": SlackNotifier, "discord": DiscordNotifier,
+    return {"telegram": TelegramNotifier, "slack": SlackNotifier, "discord": DiscordNotifier, "email": EmailNotifier,
             "console": lambda s: ConsoleNotifier()}[name](settings)

@@ -18,6 +18,8 @@ Every user-facing error has a stable code, a message and a fix. Generated from `
 | SIEVE-AUTH-422 | Use 12 or more characters; a passphrase of four words works well. |
 | SIEVE-AUTH-423 | Wait for the lock to expire, or ask an admin to unlock the account. |
 | SIEVE-AUTH-428 | Promote another user to admin first; Sieve always keeps at least one admin. |
+| SIEVE-AUTH-449 | Enter the current 6-digit code from your authenticator app; check the phone's clock if it keeps failing. |
+| SIEVE-AUTH-450 | Open Settings > Security and turn on two-factor sign-in; this server requires it for admins. |
 | SIEVE-CFG-001 | Compare your file with config/sieve.example.yaml, or run `sieve check-config`. |
 | SIEVE-CFG-002 | Sieve saves UI changes to data/settings.override.yaml; make the data directory writable. |
 | SIEVE-ING-400 | Send Wazuh alerts.json objects; each one needs a 'rule' object. |
@@ -36,6 +38,7 @@ Every user-facing error has a stable code, a message and a fix. Generated from `
 | SIEVE-NTF-502 | Check the bot token and chat or channel ID in Settings > Integrations, then press Test. |
 | SIEVE-PLG-404 | Reload the plugins page; this plugin is not installed. |
 | SIEVE-PLG-422 | Fix the highlighted field; the plugin's settings schema rejected the value. |
+| SIEVE-RATE-429 | Wait a minute and try again. |
 | SIEVE-RULE-422 | Paste a Sigma rule (YAML with a detection section) or a single Wazuh <rule> element. |
 | SIEVE-SETUP-409 | Setup is already complete. Sign in instead. |
 | SIEVE-WZ-401 | Check the Wazuh API user and password; use a read-only user for queries. |

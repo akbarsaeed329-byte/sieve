@@ -89,6 +89,17 @@ class DiscordCfg(BaseModel):
     webhook_env: str = "SIEVE_DISCORD_WEBHOOK"
 
 
+class EmailCfg(BaseModel):
+    enabled: bool = False
+    host: str = ""
+    port: int = 587
+    starttls: bool = True
+    username: str = ""
+    password_env: str = "SIEVE_SMTP_PASSWORD"
+    sender: str = ""
+    to: list[str] = Field(default_factory=list)
+
+
 class DigestCfg(BaseModel):
     enabled: bool = False
     hour_utc: int = Field(7, ge=0, le=23)
@@ -102,6 +113,7 @@ class NotifyCfg(BaseModel):
     slack: SlackCfg = Field(default_factory=SlackCfg)
     discord: DiscordCfg = Field(default_factory=DiscordCfg)
     digest: DigestCfg = Field(default_factory=DigestCfg)
+    email: EmailCfg = Field(default_factory=EmailCfg)
     public_url: str = "http://localhost:8080"
 
 
@@ -131,6 +143,49 @@ class WazuhCfg(BaseModel):
     verify_tls: bool = True
     alerts_index: str = "wazuh-alerts-*"
     timeout_s: float = 10
+    pull_enabled: bool = False      # poll the indexer instead of installing the integration on the manager
+    pull_interval_s: int = Field(15, ge=5, le=3600)
+
+
+class SlaCfg(BaseModel):
+    """Minutes to acknowledge per band. Unacknowledged past due -> one escalation message."""
+    critical: int = Field(15, ge=1)
+    high: int = Field(60, ge=1)
+    medium: int = Field(480, ge=1)
+    low: int = Field(1440, ge=1)
+    escalate: bool = True
+
+
+class WebhookCfg(BaseModel):
+    name: str
+    url: str
+    secret_env: str = ""            # HMAC-SHA256 signing secret (X-Sieve-Signature)
+    events: list[str] = Field(default_factory=lambda: ["incident.notified", "incident.escalated",
+                                                       "incident.status_changed"])
+    min_band: BandName = "high"
+    enabled: bool = True
+
+
+class JiraCfg(BaseModel):
+    enabled: bool = False
+    base_url: str = ""              # https://yourcompany.atlassian.net
+    email: str = ""
+    token_env: str = "SIEVE_JIRA_TOKEN"
+    project_key: str = ""
+    issue_type: str = "Task"
+    min_band: BandName = "high"
+
+
+class TheHiveCfg(BaseModel):
+    enabled: bool = False
+    base_url: str = ""              # https://thehive.local:9000
+    token_env: str = "SIEVE_THEHIVE_TOKEN"
+    min_band: BandName = "high"
+
+
+class RetentionCfg(BaseModel):
+    alerts_days: int = Field(90, ge=1)          # raw alerts and suppressions; incidents and audit are kept
+    llm_calls_days: int = Field(30, ge=1)
 
 
 class PluginState(BaseModel):
@@ -154,6 +209,12 @@ class Settings(BaseModel):
     intel: IntelCfg = Field(default_factory=IntelCfg)
     wazuh: WazuhCfg = Field(default_factory=WazuhCfg)
     plugins: dict[str, PluginState] = Field(default_factory=dict)
+    sla: SlaCfg = Field(default_factory=SlaCfg)
+    webhooks: list[WebhookCfg] = Field(default_factory=list)
+    jira: JiraCfg = Field(default_factory=JiraCfg)
+    thehive: TheHiveCfg = Field(default_factory=TheHiveCfg)
+    retention: RetentionCfg = Field(default_factory=RetentionCfg)
+    require_2fa_for_admins: bool = False
     tripwire_threshold: float = Field(1.0, gt=0)
     shadow_mode: bool = False           # triage and record, but send no notifications
     allow_active_response: bool = False  # human-approved Wazuh active response; off by default
@@ -190,6 +251,7 @@ class Settings(BaseModel):
 EDITABLE_SECTIONS = (
     "weights", "bands", "grouping", "filter", "llm", "notify", "assets", "intel", "wazuh", "plugins",
     "tripwire_threshold", "shadow_mode", "allow_active_response", "simple_mode_default",
+    "sla", "webhooks", "jira", "thehive", "retention", "require_2fa_for_admins",
 )
 # allow_active_response can only be turned on from the config file, never from the browser.
 UI_FORBIDDEN_ENABLE = ("allow_active_response",)

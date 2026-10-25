@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { get } from '$lib/api.js';
   import Chart from '$c/Chart.svelte';
+  import { plural } from '$lib/util.js';
   import ErrorBox from '$c/ErrorBox.svelte';
   let m = $state(null), sh = $state(null), days = $state(14), error = $state(null);
   async function load() {
@@ -34,8 +35,8 @@
         <div class="kpi"><span class="small muted">Exact agreement</span><span class="v">{pct(sh.agreement)}</span></div>
         <div class="kpi"><span class="small muted">Within one band</span><span class="v">{pct(sh.within_one_band)}</span></div>
         <div class="kpi"><span class="small muted">Cohen's kappa</span><span class="v">{sh.cohen_kappa ?? '–'}</span></div></div>
-      {#if sh.sieve_lower_than_human.length}<p class="error">Sieve rated {sh.sieve_lower_than_human.length} incident(s) lower than a human did: {#each sh.sieve_lower_than_human as id}<a href="/incidents/{id}">#{id}</a> {/each}</p>{/if}
+      {#if sh.sieve_lower_than_human.length}<p class="error">Sieve rated {plural(sh.sieve_lower_than_human.length, 'incident')} lower than a human did: {#each sh.sieve_lower_than_human as id}<a href="/incidents/{id}">#{id}</a> {/each}</p>{/if}
     </section>
   {/if}
 </div>
-<style>.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 24px; }</style>
+<style>.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(420px, 100%), 1fr)); gap: 24px; }</style>

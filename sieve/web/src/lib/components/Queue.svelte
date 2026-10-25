@@ -2,7 +2,7 @@
   // Incident queue table with keyboard navigation: J/K move, Enter or E open, A acknowledge.
   import { goto } from '$app/navigation';
   import { post } from '$lib/api.js';
-  import { ago, STATUS, errText } from '$lib/util.js';
+  import { ago, STATUS, errText, until } from '$lib/util.js';
   import { canEdit, toast } from '$lib/state.svelte.js';
   import Pill from '$c/Pill.svelte';
   import Trip from '$c/Trip.svelte';
@@ -37,7 +37,9 @@
           <td><Pill band={i.band} small /></td>
           <td><a href="/incidents/{i.id}" style="color:var(--ink);font-weight:600">{i.title}</a>
             {#if i.tripwire}<Trip />{/if}{#if i.is_selftest}<span class="small muted"> · test</span>{/if}
-            {#if i.partial_context}<span class="small muted"> · partial context</span>{/if}</td>
+            {#if i.partial_context}<span class="small muted"> · partial context</span>{/if}
+            {#if i.status === 'new' && i.sla_due && until(i.sla_due).overdue}<span class="small" style="color:var(--crit);font-weight:600"> · SLA overdue</span>{/if}
+            {#if i.maintenance}<span class="small muted"> · maintenance</span>{/if}</td>
           <td class="mono nw">{i.agent_name || '–'}</td>
           <td class="mono nw">{i.user || '–'}</td>
           <td class="num">{i.alert_count.toLocaleString()}</td>

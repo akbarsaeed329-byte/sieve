@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sieve-triage"
-version = "0.1.0.dev0"
+version = "0.2.0"
 description = "Free, local-first, injection-hardened triage layer for Wazuh alerts"
 readme = "README.md"
 license = { text = "Apache-2.0" }

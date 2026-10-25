@@ -32,7 +32,7 @@ from .errors import (
     BAD_REQUEST,
     SieveError,
 )
-from .models import AuditEvent, Invite, User, aware, utcnow
+from .models import ApiToken, AuditEvent, Invite, User, aware, utcnow
 
 _ph = argon2.PasswordHasher(time_cost=2, memory_cost=65536, parallelism=2)
 _MAX_FAIL = 10
@@ -127,6 +127,9 @@ def require_role(*roles: str) -> Callable:
             db: Session = Depends(get_db)) -> User:
         from . import runtime
         secret = runtime.current().secret_key
+        auth_h = request.headers.get("authorization", "")
+        if not sieve_session and auth_h.lower().startswith("bearer sv_"):
+            return _token_user(auth_h[7:].strip(), roles, db)
         if not sieve_session:
             raise _deny(401, AUTH_REQUIRED, "Not signed in.")
         try:
@@ -142,8 +145,38 @@ def require_role(*roles: str) -> Callable:
                 raise _deny(419, AUTH_CSRF, "Missing or wrong security token.")
         if roles and user.role not in roles:
             raise _deny(403, AUTH_REQUIRED, f"This needs the {' or '.join(roles)} role.")
+        s = runtime.current()
+        if (s.require_2fa_for_admins and user.role == "admin" and not user.totp_enabled
+                and not request.url.path.startswith(("/api/auth/", "/api/me"))):
+            raise _deny(403, "SIEVE-AUTH-450", "Admins must turn on two-factor sign-in first (Settings > Security).")
         return user
     return dep
+
+
+def _token_user(tok: str, roles: tuple, db: Session) -> User:
+    """API tokens act as a synthetic user with the token's role. No cookie, so no CSRF needed."""
+    row = db.scalar(select(ApiToken).where(ApiToken.token_hash == hashlib.sha256(tok.encode()).hexdigest()))
+    if row is None or row.revoked or (row.expires_at and aware(row.expires_at) < utcnow()):
+        raise _deny(401, AUTH_REQUIRED, "API token invalid, revoked or expired.")
+    if roles and row.role not in roles:
+        raise _deny(403, AUTH_REQUIRED, f"This needs the {' or '.join(roles)} role.")
+    row.last_used_at = utcnow()
+    db.commit()
+    u = User(id=-row.id, username=f"token:{row.name}"[:80], password_hash="", role=row.role)
+    return u
+
+
+def create_api_token(name: str, role: str, actor: str, days: int | None) -> tuple[str, ApiToken]:
+    if role not in ROLES:
+        raise SieveError(BAD_REQUEST, f"Unknown role {role}.", status=422)
+    tok = "sv_" + secrets.token_urlsafe(32)
+    with SessionLocal() as db:
+        row = ApiToken(name=name.strip()[:80] or "token", token_hash=hashlib.sha256(tok.encode()).hexdigest(),
+                       prefix=tok[:10], role=role, created_by=actor,
+                       expires_at=utcnow() + timedelta(days=days) if days else None)
+        db.add(row)
+        db.commit()
+        return tok, row
 
 
 viewer = require_role("admin", "analyst", "viewer")
@@ -151,7 +184,7 @@ analyst = require_role("admin", "analyst")
 admin = require_role("admin")
 
 
-def login(username: str, password: str, db: Session, secret: str) -> tuple[str, User]:
+def login(username: str, password: str, db: Session, secret: str, otp: str | None = None) -> tuple[str, User]:
     user = db.scalar(select(User).where(User.username == username))
     now = utcnow()
     if user and user.locked_until and now < aware(user.locked_until):
@@ -167,6 +200,16 @@ def login(username: str, password: str, db: Session, secret: str) -> tuple[str, 
         db.add(AuditEvent(actor=username[:80], action="auth.login_failed", target=username[:200]))
         db.commit()
         raise SieveError(AUTH_BAD_LOGIN, "Incorrect username or password.", status=401)
+    if user.totp_enabled:
+        from . import secrets_store, totp
+        if not otp:
+            raise SieveError("SIEVE-AUTH-449", "Enter the 6-digit code from your authenticator app.", status=401)
+        raw = secrets_store._fernet(secret).decrypt(user.totp_secret.encode()).decode()
+        if not totp.verify(raw, otp):
+            user.failed_logins += 1
+            db.add(AuditEvent(actor=username[:80], action="auth.totp_failed", target=username[:200]))
+            db.commit()
+            raise SieveError("SIEVE-AUTH-449", "That code is wrong or expired. Try the current code.", status=401)
     user.failed_logins, user.locked_until, user.last_login_at = 0, None, now
     db.add(AuditEvent(actor=user.username, action="auth.login", target=user.username))
     db.commit()

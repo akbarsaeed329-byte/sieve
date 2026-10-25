@@ -67,6 +67,9 @@ INTEL_UNREACHABLE = "SIEVE-INTEL-504"
 PLUGIN_UNKNOWN = "SIEVE-PLG-404"
 PLUGIN_BAD_SETTINGS = "SIEVE-PLG-422"
 RULE_PARSE = "SIEVE-RULE-422"
+AUTH_TOTP = "SIEVE-AUTH-449"
+RATE_LIMITED = "SIEVE-RATE-429"
+AUTH_2FA_REQUIRED = "SIEVE-AUTH-450"
 
 FIXES: dict[str, str] = {
     CONFIG_INVALID: "Compare your file with config/sieve.example.yaml, or run `sieve check-config`.",
@@ -105,6 +108,9 @@ FIXES: dict[str, str] = {
     INTEL_UNREACHABLE: "The threat-intel service did not answer; Sieve marks the incident 'partial context'.",
     PLUGIN_UNKNOWN: "Reload the plugins page; this plugin is not installed.",
     PLUGIN_BAD_SETTINGS: "Fix the highlighted field; the plugin's settings schema rejected the value.",
+    AUTH_TOTP: "Enter the current 6-digit code from your authenticator app; check the phone's clock if it keeps failing.",
+    RATE_LIMITED: "Wait a minute and try again.",
+    AUTH_2FA_REQUIRED: "Open Settings > Security and turn on two-factor sign-in; this server requires it for admins.",
     RULE_PARSE: "Paste a Sigma rule (YAML with a detection section) or a single Wazuh <rule> element.",
 }
 

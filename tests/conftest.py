@@ -29,6 +29,8 @@ def settings(tmp_path, monkeypatch):
     llm_client.set_transport(None)
     http.set_transport(None)
     Stats.reset()
+    from sieve import ratelimit
+    ratelimit.reset()
     yield s
     runtime.reset()
     llm_client.set_transport(None)

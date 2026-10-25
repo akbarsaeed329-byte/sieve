@@ -22,6 +22,9 @@ def main(argv: list[str] | None = None) -> None:
     g = sub.add_parser("digest", help="print (or --send) the daily digest")
     g.add_argument("--version", choices=["manager", "technical"], default="manager")
     g.add_argument("--send", action="store_true")
+    bk = sub.add_parser("backup", help="write a consistent copy of the database (safe while running)")
+    bk.add_argument("path")
+    sub.add_parser("purge", help="apply the data-retention policy now")
     sub.add_parser("version")
     a = p.parse_args(argv if argv is not None else sys.argv[1:])
     cmd = a.cmd or "serve"
@@ -65,6 +68,20 @@ def main(argv: list[str] | None = None) -> None:
             await drain()
         asyncio.run(go())
         print(f"Queued and processed {len(items)} alert(s).")
+    elif cmd == "backup":
+        import sqlite3
+        src = sqlite3.connect(s.db_path)
+        dst = sqlite3.connect(a.path)
+        with dst:
+            src.backup(dst)
+        dst.close()
+        src.close()
+        print(f"Backed up {s.db_path} to {a.path}. Also keep data/.secret_key: it decrypts stored secrets.")
+    elif cmd == "purge":
+        from .db import init_db
+        from .housekeeping import purge_old
+        init_db(s.db_path)
+        print(purge_old())
     elif cmd == "digest":
         from . import digest
         from .db import init_db

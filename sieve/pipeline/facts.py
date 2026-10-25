@@ -32,8 +32,10 @@ def facts(inc: Incident) -> list[dict]:
                     "evidence": [f"alert:{ok.id}"]})
     if not out and alerts:
         top = max(alerts, key=lambda x: x.level)
-        out.append({"text": f"{inc.alert_count} alert(s) of rule {top.rule_id} (level {top.level}) on "
-                            f"{inc.agent_name}.", "evidence": [f"alert:{top.id}"]})
+        n = inc.alert_count
+        what = (top.description or f"rule {top.rule_id}").strip().rstrip(".")
+        out.append({"text": f"{n} {'alert' if n == 1 else 'alerts'} on {inc.agent_name}: {what} "
+                            f"(Wazuh rule {top.rule_id}, level {top.level}).", "evidence": [f"alert:{top.id}"]})
     labels = [b["label"] for b in (inc.breakdown or [])]
     if any("threat-intel" in lbl for lbl in labels):
         src = (inc.intel or {}).get("source") or "a configured list"

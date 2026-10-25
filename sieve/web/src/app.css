@@ -85,3 +85,9 @@ pre.log { margin: 0; padding: 10px 12px; background: var(--ground); border-radiu
   text-decoration: none; border-bottom: 2px solid transparent; }
 .tabs a[aria-current=page] { border-color: var(--brand); font-weight: 600; }
 kbd { font: 500 12px var(--mono); border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; }
+
+/* Layout guards found in QA: flex/grid children may shrink; long unbroken values wrap. */
+.stack > *, .stack-lg > *, .row > .grow { min-width: 0; }
+h1, h2, h3, dd, td, .ev-item, code { overflow-wrap: anywhere; }
+pre.log { max-width: 100%; }
+.table-wrap { position: relative; }  /* keeps absolutely-positioned .sr-only labels inside scroll boxes */

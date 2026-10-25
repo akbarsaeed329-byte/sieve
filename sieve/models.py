@@ -69,6 +69,11 @@ class Incident(Base):
     human_band: Mapped[str | None] = mapped_column(String(16), nullable=True)   # shadow-mode validation
     human_band_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
     is_selftest: Mapped[bool] = mapped_column(Boolean, default=False)
+    tags: Mapped[list] = mapped_column(JSON, default=list)
+    sla_due: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    merged_into: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    maintenance: Mapped[str | None] = mapped_column(String(300), nullable=True)
     alerts: Mapped[list[Alert]] = relationship(back_populates="incident", order_by="Alert.timestamp")
     explanations: Mapped[list[Explanation]] = relationship(back_populates="incident",
                                                           order_by="Explanation.created_at")
@@ -157,6 +162,9 @@ class User(Base):
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    totp_secret: Mapped[str | None] = mapped_column(String(200), nullable=True)   # encrypted, see secrets_store
+    totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
 class Invite(Base):
@@ -256,6 +264,60 @@ class SecretRecord(Base):
     ciphertext: Mapped[str] = mapped_column(Text)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_by: Mapped[str] = mapped_column(String(80), default="")
+
+
+class Comment(Base):
+    __tablename__ = "comments"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incidents.id"), index=True)
+    author: Mapped[str] = mapped_column(String(80))
+    body: Mapped[str] = mapped_column(Text)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AlertException(Base):
+    """An approved, scoped, expiring exception: matching alerts are suppressed with this reason.
+    Created by a human (often from a false-positive verdict). Tripwire hits are never excepted."""
+    __tablename__ = "exceptions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    srcip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    reason: Mapped[str] = mapped_column(String(500))
+    created_by: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    from_incident: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class MaintenanceWindow(Base):
+    """Approved maintenance. Alerts are kept and labelled; only non-critical notifications are held."""
+    __tablename__ = "maintenance"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    agent_name: Mapped[str] = mapped_column(String(200))      # exact name, or * for all hosts
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[str] = mapped_column(String(300))
+    created_by: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ApiToken(Base):
+    """Bearer tokens for automation. Only a SHA-256 is stored; the token is shown once."""
+    __tablename__ = "api_tokens"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    prefix: Mapped[str] = mapped_column(String(12))
+    role: Mapped[str] = mapped_column(String(16))
+    created_by: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    revoked: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 class AuditEvent(Base):

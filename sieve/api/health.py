@@ -132,7 +132,7 @@ async def test_llm(name: str, user=Depends(admin)):
 @router.post("/api/health/test/notify/{channel}")
 async def test_notify(channel: str, user=Depends(admin)):
     s = runtime.current()
-    if channel not in ("telegram", "slack", "discord", "console"):
+    if channel not in ("telegram", "slack", "discord", "email", "console"):
         raise SieveError(NOT_FOUND, f"No channel called {channel}.", status=404)
     if channel != "console" and not getattr(s.notify, channel).enabled:
         raise SieveError(NOTIFY_NOT_CONFIGURED, f"{channel.capitalize()} is not enabled.", status=424)

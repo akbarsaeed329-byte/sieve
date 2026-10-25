@@ -14,8 +14,21 @@ Sieve sits between Wazuh and your team. It:
 2. **Scores severity with rules.** The AI explains; it never decides the band or any action.
 3. **Treats every log field as hostile.** Attacker text that tries to steer the AI trips a wire and becomes its own alert.
 4. **Shows its work.** Every sentence cites the log lines behind it; every suppressed alert has a reason and can be restored.
-5. **Notifies at once** (Telegram, Slack, Discord) and edits the same message when the checked AI summary is ready.
-6. **Works with no AI at all**, with a local model (Ollama), or with a cloud model (masked by default).
+5. **Notifies at once** (Telegram, Slack, Discord, email) and edits the same message when the checked AI summary is ready.
+6. **Learns from your verdicts.** A false positive becomes a narrow, expiring exception; noisy rules rise to the top.
+7. **Runs the case.** Owner, notes, SLA timers and escalation, maintenance windows, shift handover, executive report,
+   Jira / TheHive / signed webhooks.
+8. **Works with no AI at all**, with a local model (Ollama), or with a cloud model (masked by default).
+
+## How it compares (details and sources: [docs/COMPARISON.md](docs/COMPARISON.md))
+
+| | Enterprise SIEM | AI SOC analyst SaaS | **Sieve** |
+|---|---|---|---|
+| Typical cost | per-GB, often six figures a year | from about $36k a year | **free, open source** |
+| Where your logs go | vendor cloud or your cluster | vendor cloud | **stays on your machine** |
+| Can the AI change severity? | n/a | model verdict | **no: rules decide; model output is evidence-checked** |
+| Feedback loop, exceptions, SLA | add-ons / SOAR | varies | **built in** |
+| Setup | weeks | hours | **minutes (wizard with live tests)** |
 
 ## Measured on the PoisonedLogs seed set (worst-case, obedient mock model)
 
@@ -81,7 +94,7 @@ docs/            ARCHITECTURE · STATUS · EVALUATION · ERROR_CODES · PLUGINS 
 ## Develop
 ```bash
 pip install -e ".[dev]"
-make lint test     # 163 tests; 80%+ coverage required on pipeline and llm
+make lint test     # 206 tests; 80%+ coverage required on pipeline and llm
 make web           # rebuild the UI (Node 20+)
 make bench         # PoisonedLogs harness
 ```

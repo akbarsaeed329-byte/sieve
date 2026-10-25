@@ -4,7 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 
-from .. import __version__, runtime
+from .. import __version__, ratelimit, runtime
 from ..auth import (
     accept_invite,
     audit,
@@ -25,6 +25,7 @@ router = APIRouter(tags=["Auth"])
 class Creds(BaseModel):
     username: str
     password: str
+    otp: str | None = None
 
 
 def _secure(request: Request) -> bool:
@@ -49,7 +50,8 @@ def first_run_setup(body: Creds, request: Request, response: Response):
 
 @router.post("/api/auth/login")
 def do_login(body: Creds, request: Request, response: Response, db=Depends(get_db)):
-    _, user = login(body.username[:80], body.password[:1024], db, runtime.current().secret_key)
+    ratelimit.check("login", request.client.host if request.client else "?")
+    _, user = login(body.username[:80], body.password[:1024], db, runtime.current().secret_key, body.otp)
     issue_session(response, user, runtime.current().secret_key, _secure(request))
     return {"ok": True, "username": user.username, "role": user.role}
 
@@ -64,8 +66,10 @@ def do_logout(response: Response, user=Depends(viewer)):
 @router.get("/api/auth/me")
 @router.get("/api/me")
 def me(user=Depends(viewer)):
-    return {"id": user.id, "username": user.username, "role": user.role,
-            "simple_mode_default": runtime.current().simple_mode_default}
+    s = runtime.current()
+    return {"id": user.id, "username": user.username, "role": user.role, "totp_enabled": bool(user.totp_enabled),
+            "must_enroll_2fa": bool(s.require_2fa_for_admins and user.role == "admin" and not user.totp_enabled),
+            "simple_mode_default": s.simple_mode_default}
 
 
 @router.get("/api/invites/{token}")

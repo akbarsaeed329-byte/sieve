@@ -1,5 +1,12 @@
 export const BAND = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
-export const STATUS = { new: 'New', acknowledged: 'Acknowledged', resolved: 'Resolved', false_positive: 'False positive' };
+export const STATUS = { new: 'New', acknowledged: 'Acknowledged', resolved: 'Resolved', false_positive: 'False positive', merged: 'Merged' };
+
+export function until(iso) {
+  if (!iso) return null;
+  const m = Math.round((new Date(iso).getTime() - Date.now()) / 60000);
+  const abs = Math.abs(m), t = abs < 90 ? `${abs} min` : abs < 2880 ? `${Math.round(abs / 60)} h` : `${Math.round(abs / 1440)} d`;
+  return { overdue: m < 0, text: m < 0 ? `${t} overdue` : `due in ${t}` };
+}
 
 export function ago(iso) {
   if (!iso) return '';
@@ -20,3 +27,5 @@ export function errText(e) {
 }
 
 export const fmt = (n) => (n === null || n === undefined ? '–' : Number(n).toLocaleString());
+
+export const plural = (n, one, many = one + 's') => `${n} ${n === 1 ? one : many}`;

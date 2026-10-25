@@ -14,12 +14,15 @@ from tests.helpers import alert, feed, success
 VIEWER_GET = ["/api/incidents", "/api/incidents/1", "/api/stats", "/api/playbooks", "/api/playbooks/PB-BRUTE",
               "/api/suppressions", "/api/baselines", "/api/coverage", "/api/graph?incident_id=1",
               "/api/metrics/summary", "/api/shadow/agreement", "/api/digest", "/api/health/details",
-              "/api/incidents/1/stix", "/api/auth/me"]
+              "/api/incidents/1/stix", "/api/auth/me", "/api/exceptions", "/api/maintenance", "/api/tuning/noisy-rules",
+              "/api/reports/executive", "/api/reports/handover", "/api/users/directory"]
 ANALYST_POST = [("/api/incidents/1/acknowledge", None), ("/api/incidents/1/resolve", {}),
                 ("/api/incidents/1/false-positive", {"reason": "x"}), ("/api/incidents/1/checklist/PB-BRUTE-01", {}),
                 ("/api/incidents/1/human-band", {"band": "high"}), ("/api/suppressions/1/review", {"outcome": "noise"}),
                 ("/api/backtest", {"rule": "detection:\n  s: {a: 1}\n  condition: s"}),
-                ("/api/incidents/1/explain", None)]
+                ("/api/incidents/1/explain", None), ("/api/incidents/1/comments", {"body": "x"}),
+                ("/api/incidents/1/assign", {"assignee": None}), ("/api/incidents/1/tags", {"tags": []}),
+                ("/api/exceptions", {"reason": "abc", "rule_id": "1"})]
 ADMIN = [("GET", "/api/users", None), ("POST", "/api/users/invite", {"role": "viewer"}),
          ("POST", "/api/users/1/role", {"role": "admin"}), ("GET", "/api/settings", None),
          ("PUT", "/api/settings", {"shadow_mode": False}), ("GET", "/api/audit", None), ("GET", "/api/plugins", None),
@@ -28,7 +31,9 @@ ADMIN = [("GET", "/api/users", None), ("POST", "/api/users/invite", {"role": "vi
          ("POST", "/api/health/test/wazuh", None), ("POST", "/api/setup/test-alert", None),
          ("GET", "/api/setup/progress", None), ("POST", "/api/coverage/results",
                                                {"technique": "T1110", "outcome": "detected"}),
-         ("POST", "/api/digest/send", None)]
+         ("POST", "/api/digest/send", None), ("GET", "/api/tokens", None), ("POST", "/api/tokens", {"name": "x"}),
+         ("POST", "/api/maintenance", {"agent_name": "x", "starts_at": "2026-01-01T00:00:00Z",
+                                       "ends_at": "2026-01-01T01:00:00Z", "reason": "abc"})]
 
 
 @pytest.fixture
@@ -263,3 +268,15 @@ def test_health_public_is_minimal(client):
 def test_unknown_api_route_is_json_404(client):
     r = client.get("/api/nope")
     assert r.status_code == 404 and r.json()["code"] == "SIEVE-API-404"
+
+
+def test_selftest_alert_always_notifies(client, settings):
+    from sieve.models import Notification
+    from sieve.worker import run_once
+    c = signed_in(client)
+    wid = c.post("/api/setup/test-alert").json()["wazuh_id"]
+    run(run_once())
+    st = c.get(f"/api/setup/test-alert/{wid}").json()
+    assert st["processed"] and st["notifications"] and st["notifications"][0]["ok"]
+    with SessionLocal() as db:
+        assert db.scalars(select(Notification)).first().channel == "console"

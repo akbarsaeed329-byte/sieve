@@ -33,7 +33,10 @@
     <div class="field"><label for="a5">Indexer user</label><input id="a5" type="text" bind:value={wz.indexer_username} /></div>
     <Secret name={wz.indexer_password_env} label="Indexer password" />
     <label class="row"><input type="checkbox" bind:checked={wz.verify_tls} /> Verify TLS certificates</label>
+    <label class="row"><input id="pull" type="checkbox" bind:checked={wz.pull_enabled} disabled={!wz.indexer_url} /> Read alerts from the indexer (pull mode: nothing to install on the manager)</label>
+    <div class="field"><label for="pi">Pull every (seconds)</label><input id="pi" type="number" min="5" max="3600" bind:value={wz.pull_interval_s} disabled={!wz.pull_enabled} /></div>
   </div>
+  {#if !wz.indexer_url}<p class="hint">Pull mode needs the indexer URL and credentials.</p>{/if}
   {@render outcome(results.wazuh)}
   <div class="row"><button class="btn primary" onclick={saveWazuh} disabled={S.saving}>Save</button>
     <button class="btn" onclick={() => test('wazuh', '/api/health/test/wazuh')}>Test connection</button></div>
@@ -65,6 +68,16 @@
     <Secret name={n.discord.webhook_env} label="Webhook URL" /></div>
   {@render outcome(results.discord)}
   <button class="btn small" style="align-self:flex-start" onclick={() => test('discord', '/api/health/test/notify/discord')}>Send test message</button>
+  <h3>Email</h3>
+  <div class="grid"><label class="row"><input type="checkbox" bind:checked={n.email.enabled} /> Enabled</label>
+    <div class="field"><label for="e1">SMTP host</label><input id="e1" type="text" bind:value={n.email.host} /></div>
+    <div class="field"><label for="e2">Port (587 STARTTLS, 465 TLS)</label><input id="e2" type="number" bind:value={n.email.port} /></div>
+    <div class="field"><label for="e3">Username</label><input id="e3" type="text" bind:value={n.email.username} /></div>
+    <Secret name={n.email.password_env} label="SMTP password" />
+    <div class="field"><label for="e4">From</label><input id="e4" type="text" bind:value={n.email.sender} /></div>
+    <div class="field"><label for="e5">To (comma-separated)</label><input id="e5" type="text" value={n.email.to.join(', ')} onchange={(e) => (n.email.to = e.currentTarget.value.split(',').map((x) => x.trim()).filter(Boolean))} /></div></div>
+  {@render outcome(results.email)}
+  <button class="btn small" style="align-self:flex-start" onclick={() => test('email', '/api/health/test/notify/email')}>Send test email</button>
   <h3>Daily digest</h3>
   <div class="grid"><label class="row"><input type="checkbox" bind:checked={n.digest.enabled} /> Send a daily digest</label>
     <div class="field"><label for="d1">Hour (UTC)</label><input id="d1" type="number" min="0" max="23" bind:value={n.digest.hour_utc} /></div>

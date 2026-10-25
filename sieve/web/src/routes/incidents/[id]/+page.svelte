@@ -3,13 +3,38 @@
   import { page } from '$app/state';
   import { get, post } from '$lib/api.js';
   import { app, canEdit, isAdmin, toast } from '$lib/state.svelte.js';
-  import { ago, hhmmss, errText, STATUS } from '$lib/util.js';
+  import { ago, hhmmss, errText, STATUS, until, plural } from '$lib/util.js';
   import Pill from '$c/Pill.svelte';
   import Untrusted from '$c/Untrusted.svelte';
   import ErrorBox from '$c/ErrorBox.svelte';
 
   let i = $state(null), error = $state(null), busy = $state(false), nis2 = $state(null), shown = $state(20);
   let id = $derived(page.params.id);
+  let users = $state([]), note = $state(''), tagText = $state(''), fpOpen = $state(false), fpReason = $state('');
+  let sug = $state(null), makeExc = $state(true), excDays = $state(30), mergeInto = $state('');
+  onMount(async () => { users = await get('/api/users/directory').catch(() => []); });
+  async function openFp() { fpOpen = true; fpReason = ''; sug = await get(`/api/incidents/${id}/exception-suggestion`).catch(() => null); }
+  async function submitFp(e) {
+    e.preventDefault(); busy = true;
+    try {
+      await post(`/api/incidents/${id}/false-positive`, { reason: fpReason });
+      if (makeExc && sug) {
+        await post('/api/exceptions', { rule_id: sug.rule_id, agent_name: sug.agent_name, srcip: sug.srcip, user: sug.user,
+          reason: fpReason, expires_in_days: Number(excDays), from_incident: Number(id) });
+        toast('Marked false positive. Matching alerts will now be suppressed with your reason.');
+      } else toast('Marked false positive.');
+      fpOpen = false; await load();
+    } catch (err) { toast(errText(err)); } finally { busy = false; }
+  }
+  async function addNote(e) { e.preventDefault(); if (!note.trim()) return;
+    try { await post(`/api/incidents/${id}/comments`, { body: note }); note = ''; await load(); } catch (err) { toast(errText(err)); } }
+  async function assignTo(v) { try { await post(`/api/incidents/${id}/assign`, { assignee: v || null }); toast(v ? `Assigned to ${v}.` : 'Unassigned.'); await load(); } catch (err) { toast(errText(err)); } }
+  async function saveTags(e) { e.preventDefault();
+    try { await post(`/api/incidents/${id}/tags`, { tags: [...(i.tags || []), ...tagText.split(/[\s,]+/)].filter(Boolean) }); tagText = ''; await load(); } catch (err) { toast(errText(err)); } }
+  async function dropTag(t) { try { await post(`/api/incidents/${id}/tags`, { tags: i.tags.filter((x) => x !== t) }); await load(); } catch (err) { toast(errText(err)); } }
+  async function doMerge(e) { e.preventDefault();
+    if (!mergeInto || !confirm(`Merge ${i.ref} into incident #${mergeInto}? Its alerts move there.`)) return;
+    try { await post(`/api/incidents/${id}/merge`, { into: Number(mergeInto) }); toast('Merged.'); location.href = `/incidents/${mergeInto}`; } catch (err) { toast(errText(err)); } }
   async function load() {
     try { i = await get(`/api/incidents/${id}`); error = null; } catch (e) { error = e; }
     await tick();
@@ -22,10 +47,6 @@
     try { await post(`/api/incidents/${id}/${path}`, body); toast(msg); await load(); }
     catch (e) { toast(errText(e)); } finally { busy = false; }
   };
-  async function fp() {
-    const reason = prompt('Why is this a false positive? The reason is kept in the audit log and helps tune filters.');
-    if (reason) await act('false-positive', { reason }, 'Marked as false positive.')();
-  }
   async function tickStep(step, checked) {
     try { await post(`/api/incidents/${id}/checklist/${step}`, { checked }); }
     catch (e) { toast(errText(e)); await load(); }
@@ -86,8 +107,11 @@
 <div class="stack-lg">
   <div class="small"><a href="/incidents">Incidents</a><span class="muted"> / {i.ref}</span></div>
   <header class="row between" style="align-items:flex-start">
-    <div class="stack" style="gap:10px;flex:1 1 520px">
+    <div class="stack" style="gap:10px;flex:1 1 min(520px, 100%);min-width:0">
       <div class="row"><Pill band={i.band} /><span class="small muted">score {i.score}{#if i.status !== 'new'} · {STATUS[i.status]}{/if}</span>
+        {#if i.sla_due && i.status === 'new'}{@const u = until(i.sla_due)}<span class="sla" class:late={u.overdue}>SLA {u.text}</span>{/if}
+        {#if i.escalated_at}<span class="sla late">escalated</span>{/if}
+        {#each i.tags as t}<span class="tag">{t}{#if canEdit()}<button aria-label="Remove tag {t}" onclick={() => dropTag(t)}>×</button>{/if}</span>{/each}
         {#if i.is_selftest}<span class="small muted">· setup test</span>{/if}</div>
       <h1>{i.title}</h1>
       <dl class="facts">
@@ -104,7 +128,7 @@
         {#if i.status === 'new'}<button class="btn primary" disabled={busy} onclick={act('acknowledge', undefined, 'Acknowledged.')}>Acknowledge</button>{/if}
         {#if i.status === 'new' || i.status === 'acknowledged'}
           <button class="btn" disabled={busy} onclick={act('resolve', {}, 'Resolved.')}>Resolve</button>
-          <button class="btn" disabled={busy} onclick={fp}>Mark false positive</button>
+          <button class="btn" disabled={busy} onclick={openFp}>Mark false positive</button>
         {:else}<button class="btn" disabled={busy} onclick={act('reopen', undefined, 'Reopened.')}>Reopen</button>{/if}
       </div>
     {/if}
@@ -119,9 +143,24 @@
     </div>
   {/if}
   {#if i.partial_context}<div class="banner info" role="note">Partial context: {i.context_notes.join(' ')}</div>{/if}
+  {#if i.maintenance}<div class="banner info" role="note"><strong>Approved maintenance:</strong> {i.maintenance}. Non-critical notifications were held; the alerts are kept.</div>{/if}
+  {#if i.merged_into}<div class="banner info" role="note">This incident was merged into <a href="/incidents/{i.merged_into}">#{i.merged_into}</a>.</div>{/if}
+  {#if fpOpen}
+    <form class="card pad stack" onsubmit={submitFp} aria-labelledby="fph" style="border-color:var(--brand)">
+      <h2 id="fph">Mark as false positive</h2>
+      <div class="field"><label for="fpr">Why? (kept in the audit log and shown to reviewers)</label>
+        <input id="fpr" type="text" required minlength="3" bind:value={fpReason} placeholder="e.g. Authorised pentest by Acme, contract 42" /></div>
+      {#if sug}
+        <label class="row"><input type="checkbox" bind:checked={makeExc} /> Also suppress matching alerts in future</label>
+        {#if makeExc}<p class="small muted">Scope: rule {sug.rule_id} on {sug.agent_name || 'any host'}{sug.srcip ? ` from ${sug.srcip}` : ''}{sug.user ? ` for ${sug.user}` : ''}. Tripwire hits are never suppressed.</p>
+          <div class="field" style="max-width:220px"><label for="exd">Expires after (days)</label><input id="exd" type="number" min="1" max="365" bind:value={excDays} /></div>{/if}
+      {/if}
+      <div class="row"><button class="btn primary" disabled={busy}>Confirm</button><button type="button" class="btn" onclick={() => (fpOpen = false)}>Cancel</button></div>
+    </form>
+  {/if}
 
   <div class="cols">
-    <div class="stack-lg" style="flex:3 1 520px;min-width:0">
+    <div class="stack-lg" style="flex:3 1 min(520px, 100%);min-width:0">
       <section class="card pad stack" aria-labelledby="sum">
         <div class="row between"><h2 id="sum">What happened</h2>
           <span class="small muted">{aiUsed ? `Written by ${i.explanation.model}, checked against the evidence` : 'Rule-based facts from the evidence'}</span></div>
@@ -129,7 +168,7 @@
           {#each summary as s}<li>{s.text} {#each s.evidence as r}<a href="#ev-{r.replace(':', '-')}" class="ev">Evidence {evIndex.get(r)}</a> {/each}</li>{/each}
         </ol>
         {#if aiUsed && i.explanation.validation?.summary_sentences_dropped}
-          <p class="small muted">{i.explanation.validation.summary_sentences_dropped} AI sentence(s) were dropped because the evidence did not support them.</p>
+          <p class="small muted">{plural(i.explanation.validation.summary_sentences_dropped, 'AI sentence')} {i.explanation.validation.summary_sentences_dropped === 1 ? 'was' : 'were'} dropped because the evidence did not support them.</p>
         {/if}
         <div class="row small">
           {#if i.wazuh_link}<a href={i.wazuh_link} target="_blank" rel="noopener noreferrer">Show this query in Wazuh</a>{:else}<span class="muted">Wazuh query: <code>{i.wazuh_query}</code></span>{/if}
@@ -168,7 +207,7 @@
       </section>
     </div>
 
-    <div class="stack-lg" style="flex:2 1 360px;min-width:0">
+    <div class="stack-lg" style="flex:2 1 min(360px, 100%);min-width:0">
       {#if i.playbook}
       <section class="card pad stack" aria-labelledby="todo">
         <h2 id="todo">What to do now</h2>
@@ -211,6 +250,22 @@
         </details>
       </section>
 
+      <section class="card pad stack" aria-labelledby="own"><h2 id="own">Owner and notes</h2>
+        <div class="row">
+          <div class="field grow"><label for="asg">Owner</label>
+            <select id="asg" disabled={!canEdit()} value={i.assignee || ''} onchange={(e) => assignTo(e.currentTarget.value)}>
+              <option value="">Unassigned</option>{#each users as u}<option value={u.username}>{u.username}</option>{/each}</select></div>
+          {#if canEdit()}<form class="field grow" onsubmit={saveTags}><label for="tg">Add tags</label><input id="tg" type="text" placeholder="pci, customer-x" bind:value={tagText} /></form>{/if}
+        </div>
+        <ol class="notes">{#each i.comments as c}<li><span class="small muted">{c.author} · {new Date(c.at).toLocaleString()}</span><p>{c.body}</p></li>{:else}<li class="small muted">No notes yet.</li>{/each}</ol>
+        {#if canEdit()}<form class="stack" onsubmit={addNote}><label class="sr-only" for="nt">Add a note</label>
+          <textarea id="nt" style="min-height:70px;font-family:var(--sans)" placeholder="What did you check? Who did you call?" bind:value={note}></textarea>
+          <button class="btn small" style="align-self:flex-start">Add note</button></form>
+          {#if i.status === 'new' || i.status === 'acknowledged'}
+            <form class="row" onsubmit={doMerge}><div class="field"><label for="mg">Merge into incident #</label><input id="mg" type="number" min="1" bind:value={mergeInto} style="max-width:140px" /></div>
+              <button class="btn small" style="align-self:flex-end">Merge</button></form>{/if}{/if}
+      </section>
+
       <section class="card pad stack" aria-labelledby="tl"><h2 id="tl">Timeline</h2>
         <ol class="tl">{#each timeline as e}<li><span class="mono small muted">{hhmmss(e.t)}</span><span>{e.text}</span></li>{/each}</ol></section>
 
@@ -235,6 +290,7 @@
 {/if}
 <style>
   .cols { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+  .cols > * { min-width: 0; max-width: 100%; }
   .facts { display: flex; flex-wrap: wrap; gap: 8px 28px; margin: 0; }
   .facts div { display: flex; flex-direction: column; gap: 2px; }
   dt { font-size: 13px; color: var(--muted); }
@@ -251,4 +307,10 @@
   .ev-item:target { outline: 2px solid var(--brand); outline-offset: 4px; border-radius: 4px; }
   .tl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
   .tl li { display: flex; gap: 12px; }
+  .sla { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--neutral-bg); color: var(--soft); }
+  .sla.late { background: var(--crit-bg); color: var(--crit); font-weight: 600; }
+  .tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
+  .tag button { border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 0 0 4px; }
+  .notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+  .notes li { border-left: 3px solid var(--line); padding-left: 10px; }
 </style>

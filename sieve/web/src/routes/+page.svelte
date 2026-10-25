@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { get } from '$lib/api.js';
   import { app } from '$lib/state.svelte.js';
-  import { ago, fmt } from '$lib/util.js';
+  import { ago, fmt, plural } from '$lib/util.js';
   import Pill from '$c/Pill.svelte';
   import Queue from '$c/Queue.svelte';
   import ErrorBox from '$c/ErrorBox.svelte';
@@ -31,7 +31,7 @@
   </header>
   <ErrorBox {error} />
   {#if st?.shadow_mode}<div class="banner info" role="note">Shadow mode is on: Sieve triages and records everything but sends no notifications. Compare its bands with yours under Metrics.</div>{/if}
-  {#if st?.channel_failures_last_hour}<div class="banner bad" role="alert">A notification channel failed {st.channel_failures_last_hour} time(s) in the last hour. <a href="/health">Open Health</a></div>{/if}
+  {#if st?.channel_failures_last_hour}<div class="banner bad" role="alert">A notification channel failed {plural(st.channel_failures_last_hour, 'time')} in the last hour. <a href="/health">Open Health</a></div>{/if}
 
   <section aria-labelledby="needs" class="stack">
     <h2 id="needs">Needs you now</h2>

@@ -52,7 +52,8 @@ def change_role(user_id: int, body: RoleBody, user=Depends(admin)):
 def _secret_names(s) -> list[str]:
     names = [s.notify.telegram.token_env, s.notify.slack.token_env, s.notify.slack.webhook_env,
              s.notify.discord.webhook_env, s.wazuh.password_env, s.wazuh.indexer_password_env,
-             s.intel.abuseipdb_key_env]
+             s.intel.abuseipdb_key_env, s.notify.email.password_env, s.jira.token_env, s.thehive.token_env]
+    names += [w.secret_env for w in s.webhooks if w.secret_env]
     names += [p.api_key_env for p in s.llm.providers if p.api_key_env]
     for m in plugins.REGISTRY.values():
         for f in m.secret_fields:

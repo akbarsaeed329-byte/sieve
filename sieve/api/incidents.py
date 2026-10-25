@@ -12,14 +12,14 @@ from ..auth import admin, analyst, audit, viewer
 from ..errors import AR_DISABLED, AR_NOT_CONFIRMED, BAD_REQUEST, SieveError
 from ..integrations import wazuh, wazuh_response
 from ..llm.attack import info as attack_info
-from ..models import ChecklistTick, Explanation, Incident, utcnow
+from ..models import ChecklistTick, Comment, Explanation, Incident, utcnow
 from ..pipeline import playbooks
 from ..pipeline.facts import facts
 from ..pipeline.score import BAND_ORDER
 from .common import SessionLocal, get_incident, iso
 
 router = APIRouter(prefix="/api/incidents", tags=["Incidents"])
-STATUSES = ("new", "acknowledged", "resolved", "false_positive")
+STATUSES = ("new", "acknowledged", "resolved", "false_positive", "merged")
 OPEN = ("new", "acknowledged")
 
 
@@ -28,7 +28,9 @@ def summary(i: Incident) -> dict:
             "status": i.status, "agent_name": i.agent_name, "srcip": i.srcip, "user": i.user,
             "alert_count": i.alert_count, "tripwire": i.tripwire, "opened_at": iso(i.opened_at),
             "last_seen": iso(i.last_seen), "acknowledged_at": iso(i.acknowledged_at), "assignee": i.assignee,
-            "partial_context": i.partial_context, "is_selftest": i.is_selftest, "human_band": i.human_band}
+            "partial_context": i.partial_context, "is_selftest": i.is_selftest, "human_band": i.human_band,
+            "tags": i.tags or [], "sla_due": iso(i.sla_due), "escalated_at": iso(i.escalated_at),
+            "maintenance": i.maintenance, "merged_into": i.merged_into}
 
 
 def sort_key(i: Incident):
@@ -87,7 +89,9 @@ def get_detail(inc_id: int, user=Depends(viewer)):
                             "mitre_ids": a.mitre_ids} for a in alerts[-200:]],
                 "alerts_truncated": max(0, len(alerts) - 200),
                 "wazuh_query": query, "wazuh_link": wazuh.dashboard_link(s, query),
-                "active_response_enabled": s.allow_active_response, "resolved_at": iso(i.resolved_at)}
+                "active_response_enabled": s.allow_active_response, "resolved_at": iso(i.resolved_at),
+                "comments": [{"id": c.id, "author": c.author, "body": c.body, "at": iso(c.at)} for c in
+                             db.scalars(select(Comment).where(Comment.incident_id == inc_id).order_by(Comment.at))]}
 
 
 class Note(BaseModel):
@@ -109,7 +113,26 @@ def _transition(inc_id: int, status: str, who: str, reason: str = "") -> dict:
             i.resolved_at = None
         db.commit()
     audit(who, f"incident.{status}", f"INC-{inc_id}", before=before, reason=reason[:500])
+    if reason and status == "false_positive":
+        with SessionLocal() as db:
+            db.add(Comment(incident_id=inc_id, author=who, body=f"Marked false positive: {reason[:2000]}"))
+            db.commit()
+    _emit_status(inc_id)
     return {"ok": True, "status": status}
+
+
+def _emit_status(inc_id: int) -> None:
+    import asyncio
+
+    from ..integrations.outbound import emit
+    with SessionLocal() as db:
+        inc = db.get(Incident, inc_id)
+        db.expunge(inc)
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(emit("incident.status_changed", inc, runtime.current()))
+    except RuntimeError:
+        asyncio.run(emit("incident.status_changed", inc, runtime.current()))
 
 
 @router.post("/{inc_id}/acknowledge")

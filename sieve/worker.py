@@ -22,8 +22,10 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 
 from . import plugins, runtime
+from .casework import active_maintenance, matching_exception, set_sla
 from .config import Settings
 from .db import SessionLocal
+from .integrations.outbound import emit
 from .llm.explain import explain_incident
 from .llm.investigate import investigate
 from .models import KV, Alert, Baseline, Explanation, Incident, QueueItem, Suppression, aware, utcnow
@@ -150,6 +152,11 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
         reason = None if bypass_filter else suppression_reason(na, settings, tw.triggered)
         if reason and reason.startswith("below min_level") and _continues_open_incident(db, na):
             reason = None
+        if not reason and not bypass_filter and not tw.triggered:
+            exc = matching_exception(db, na)
+            if exc is not None:
+                exc.hits = (exc.hits or 0) + 1
+                reason = f"approved exception #{exc.id}: {exc.reason}"[:300]
         if reason:
             db.add(Suppression(wazuh_id=na.wazuh_id, rule_id=na.rule_id, level=na.level, agent_name=na.agent_name,
                                description=na.description, reason=reason, raw=payload))
@@ -173,6 +180,7 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
         if tw.triggered:
             inc.tripwire_hits = [{**h, "alert_id": h.get("alert_id") or alert.id} for h in inc.tripwire_hits]
             new_tripwire = not any(h["alert_id"] != alert.id for h in inc.tripwire_hits)
+            db.flush()   # persist alert IDs before refresh, or every later hit looks like the first one
         db.refresh(inc)
         alerts = sorted(inc.alerts, key=lambda a: aware(a.timestamp))
         inc.alert_count = len(alerts)
@@ -195,7 +203,13 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
             inc.title = (na.description.strip().rstrip(".") or f"Rule {na.rule_id}")[:300]
         inc.playbook = playbooks.choose({g for a in alerts for g in a.groups}, set(inc.techniques))
         inc.is_selftest = inc.is_selftest or selftest
-        should = band_rank(band) >= band_rank(settings.notify.min_band) or inc.tripwire
+        mw = active_maintenance(db, inc.agent_name, na.timestamp)
+        inc.maintenance = f"{mw.reason} (window #{mw.id}, approved by {mw.created_by})"[:300] if mw else inc.maintenance
+        set_sla(inc, settings)
+        # A setup self-test must always reach the channels: it exists to prove they work.
+        should = band_rank(band) >= band_rank(settings.notify.min_band) or inc.tripwire or inc.is_selftest
+        if mw and band != "critical" and not inc.tripwire:
+            should = False   # approved maintenance holds non-critical notifications; alerts are still kept
         already = inc.notified_band is not None and band_rank(inc.notified_band) >= band_rank(band)
         notify = (should and not already) or new_tripwire   # a first tripwire hit is its own alert
         if notify:
@@ -214,6 +228,7 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
             Stats.first_notify_ms[:] = Stats.first_notify_ms[-1000:]
             inc.notify_ref = {**(inc.notify_ref or {}), **refs}
             db.commit()
+            await emit("incident.notified", inc, settings)
 
     gate = settings.llm.enabled and band_rank(band) >= band_rank(settings.llm.min_band)
     band_rose = prev_band is None or band_rank(band) > band_rank(prev_band)
@@ -314,6 +329,29 @@ async def _maybe_digest(settings: Settings) -> None:
     await send_digest(settings, d.version)
 
 
+_timers: dict[str, float] = {}
+
+
+def _due(name: str, every_s: float) -> bool:
+    import time as _t
+    now = _t.monotonic()
+    if now - _timers.get(name, 0) >= every_s:
+        _timers[name] = now
+        return True
+    return False
+
+
+async def _housekeeping() -> None:
+    from . import housekeeping
+    s = runtime.current()
+    if s.wazuh.pull_enabled and _due("pull", s.wazuh.pull_interval_s):
+        await housekeeping.pull_from_indexer()
+    if _due("escalate", 60):
+        await housekeeping.escalate_overdue()
+    if _due("purge", 3600):
+        housekeeping.purge_old()
+
+
 async def run_worker(stop: asyncio.Event | None = None) -> None:
     log.info("triage worker started")
     stop = stop or asyncio.Event()
@@ -323,6 +361,7 @@ async def run_worker(stop: asyncio.Event | None = None) -> None:
             Stats.heartbeat = utcnow()
             took = await run_once()
             await _maybe_digest(runtime.current())
+            await _housekeeping()
         except Exception:  # noqa: BLE001 - the loop must survive anything
             log.exception("worker loop error")
         try:
