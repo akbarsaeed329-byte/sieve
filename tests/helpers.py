@@ -1,6 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
-T0 = datetime(2026, 10, 16, 9, 10, 0, tzinfo=UTC)
+# Anchored to "now" (three days ago, 09:10 UTC) so time-window tests never expire as the calendar moves on.
+T0 = (datetime.now(UTC) - timedelta(days=3)).replace(hour=9, minute=10, second=0, microsecond=0)
 
 
 def alert(i, *, rule="5716", level=8, groups=("sshd", "authentication_failed"), ip="203.0.113.45",
