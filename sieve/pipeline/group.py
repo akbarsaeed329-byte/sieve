@@ -55,11 +55,10 @@ def key_actor(key: str) -> str:
     return parts[2] if len(parts) == 3 else ""
 
 
-def open_candidates(db: Session, a: NormAlert) -> list[Incident]:
-    return (db.query(Incident)
-            .filter(Incident.status.in_(OPEN_STATUSES), Incident.agent_name == a.agent_name)
-            .order_by(Incident.last_seen.desc())
-            .limit(200).all())
+def open_candidates(db: Session, a: NormAlert, tenant_id: int | None = None) -> list[Incident]:
+    q = db.query(Incident).filter(Incident.status.in_(OPEN_STATUSES), Incident.agent_name == a.agent_name)
+    q = q.filter(Incident.tenant_id.is_(None)) if tenant_id is None else q.filter(Incident.tenant_id == tenant_id)
+    return q.order_by(Incident.last_seen.desc()).limit(200).all()
 
 
 def find_or_create_incident(
@@ -68,6 +67,7 @@ def find_or_create_incident(
     settings: Settings,
     tripwire_hit: bool,
     tripwire_hits: list[dict],
+    tenant_id: int | None = None,
 ) -> Incident:
     key = grouping_key(a)
     window = timedelta(minutes=settings.grouping.window_minutes)
@@ -78,7 +78,7 @@ def find_or_create_incident(
         last, first = aware(i.last_seen), aware(i.first_seen)
         return ts - last <= window and ts - first <= cap and first - ts <= window
 
-    candidates = open_candidates(db, a)
+    candidates = open_candidates(db, a, tenant_id)
     inc = next((i for i in candidates if i.grouping_key == key and fits(i)), None)
     if inc is None and actor(a) != "unknown":
         inc = next((i for i in candidates if key_actor(i.grouping_key) == actor(a) and fits(i)), None)
@@ -97,7 +97,7 @@ def find_or_create_incident(
             first_seen=ts, last_seen=ts, opened_at=ts,
             tripwire=tripwire_hit,
             tripwire_hits=list(tripwire_hits) if tripwire_hit else [],
-            breakdown=[], overrides=[], context_notes=[],
+            breakdown=[], overrides=[], context_notes=[], tenant_id=tenant_id,
         )
         db.add(inc)
         db.flush()

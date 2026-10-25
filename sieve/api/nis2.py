@@ -42,7 +42,7 @@ def _template(d: dict) -> str:
 async def nis2_draft(inc_id: int, user=Depends(analyst)):
     s = runtime.current()
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         opened = aware(i.opened_at)
         d = {"incident_id": i.id, "title": i.title, "band": i.band,
              "incident_date": opened.strftime("%Y-%m-%d %H:%M UTC"),

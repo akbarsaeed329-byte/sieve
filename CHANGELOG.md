@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.4.0 (2026-10-18)
+### Added
+- Pilot report (before/after on your data, agreement with analysts, hours saved with your assumption) and an
+  injection self-test that poisons copies of your own incidents in memory.
+- AI governance page (what each model receives and never receives, recent AI calls) and scoped, per-tenant,
+  rate-limited API tokens: an MCP gateway.
+- Multi-tenancy for MSSPs: agent-to-customer mapping from Wazuh agent groups or host patterns, strict isolation
+  (404 on every incident route across tenants, no cross-tenant grouping or exceptions), cross-customer attacker view,
+  white-label reports, usage counters, customer switcher.
+- Regulatory clocks per incident (NIS2, DORA with RTS 2024/1772 classification helper and 4 h / 24 h cap, GDPR 72 h)
+  and a sealed (SHA-256 + HMAC) evidence pack with verification.
+- Workflow rules (assign, tag, team, notify, page on-call, webhook, Jira), investigation report export, stale-summary badge.
+- Vulnerability term in the score from Wazuh vulnerability data; silent-source incidents judged against each agent's
+  rhythm; rules that went quiet; reviewed rule drafts for coverage gaps with backtest.
+- MISP (lookup and sightings), AlienVault OTX and abuse.ch ThreatFox enrichers.
+- Telegram and Slack buttons (verified webhooks, one-time account linking), installable PWA with Web Push, on-call rotations.
+### Fixed
+- Leftovers of an interrupted earlier attempt (duplicate tables, fields and settings; calls to missing functions).
+- Compliance column missing on incidents; provider-only pages shown to customers; five pages crashing on refused requests.
+
 ## 0.3.0 (2026-10-18)
 Built from what users of Wazuh, the Wazuh Alert Manager plugin, AI SOC tools and SOAR platforms ask for.
 ### Added

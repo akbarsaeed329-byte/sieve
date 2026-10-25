@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 
 from .. import digest, runtime
-from ..auth import admin, analyst, audit, viewer
+from ..auth import analyst, audit, p_admin, p_analyst, p_viewer, viewer
 from ..backtest import backtest
 from ..errors import BAD_REQUEST, NOT_FOUND, SieveError
 from ..integrations import wazuh
@@ -33,25 +33,30 @@ from ..models import (
 from ..pipeline import playbooks
 from ..pipeline.score import BAND_ORDER
 from ..worker import enqueue
-from .common import SessionLocal, get_incident, iso
+from .common import SessionLocal, get_incident, iso, scoped
 
 router = APIRouter(tags=["Data"])
 OPEN = ("new", "acknowledged")
 
 
 @router.get("/api/stats")
-def stats(_=Depends(viewer)):
+def stats(tenant: int | None = None, user=Depends(viewer)):
     since = utcnow() - timedelta(hours=24)
     with SessionLocal() as db:
-        kept = db.scalar(select(func.count(Alert.id)).where(Alert.received_at >= since)) or 0
-        supp = db.scalar(select(func.count(Suppression.id)).where(Suppression.created_at >= since)) or 0
+        q_kept = select(func.count(Alert.id)).where(Alert.received_at >= since)
+        kept = db.scalar(scoped(q_kept, Alert.tenant_id, user, tenant)) or 0
+        supp = db.scalar(scoped(select(func.count(Suppression.id)).where(Suppression.created_at >= since),
+                                Suppression.tenant_id, user, tenant)) or 0
+        inc_ids = scoped(select(Incident.id), Incident.tenant_id, user, tenant)
         notes = db.scalar(select(func.count(func.distinct(Notification.incident_id))).where(
             Notification.at >= since, Notification.phase == "send", Notification.ok.is_(True),
-            Notification.shadow.is_(False))) or 0
-        need = db.scalars(select(Incident).where(Incident.status == "new").where(
-            (Incident.band.in_(("critical", "high"))) | Incident.tripwire.is_(True))).all()
-        acked = db.scalars(select(Incident).where(Incident.acknowledged_at >= utcnow() - timedelta(days=7))).all()
-        open_n = db.scalar(select(func.count(Incident.id)).where(Incident.status.in_(OPEN))) or 0
+            Notification.shadow.is_(False), Notification.incident_id.in_(inc_ids))) or 0
+        need = db.scalars(scoped(select(Incident).where(Incident.status == "new").where(
+            (Incident.band.in_(("critical", "high"))) | Incident.tripwire.is_(True)), Incident.tenant_id, user, tenant)).all()
+        acked = db.scalars(scoped(select(Incident).where(Incident.acknowledged_at >= utcnow() - timedelta(days=7)),
+                                  Incident.tenant_id, user, tenant)).all()
+        open_n = db.scalar(scoped(select(func.count(Incident.id)).where(Incident.status.in_(OPEN)),
+                                  Incident.tenant_id, user, tenant)) or 0
         fails = db.scalar(select(func.count(Notification.id)).where(
             Notification.at >= utcnow() - timedelta(hours=1), Notification.ok.is_(False))) or 0
     tta = [(aware(i.acknowledged_at) - aware(i.opened_at)).total_seconds() / 60 for i in acked]
@@ -64,12 +69,12 @@ def stats(_=Depends(viewer)):
 
 
 @router.get("/api/playbooks")
-def list_playbooks(_=Depends(viewer)):
+def list_playbooks(user=Depends(viewer)):
     return [playbooks.render(pid, None, None, None) for pid in playbooks.ids()]
 
 
 @router.get("/api/playbooks/{pb_id}")
-def get_playbook(pb_id: str, _=Depends(viewer)):
+def get_playbook(pb_id: str, user=Depends(viewer)):
     if pb_id not in playbooks.load():
         raise SieveError(NOT_FOUND, f"Playbook {pb_id} not found.", status=404)
     return playbooks.render(pb_id, None, None, None)
@@ -95,7 +100,16 @@ def _sample(db) -> list[Suppression]:
 
 
 @router.get("/api/suppressions")
-def suppressions(sampled: bool = False, limit: int = Query(100, le=500), _=Depends(viewer)):
+def suppressions(sampled: bool = False, limit: int = Query(100, le=500), user=Depends(viewer)):
+    from .common import tenant_of
+    if tenant_of(user):   # customers see their own hidden alerts; sampling and reasons stay with the provider
+        with SessionLocal() as db:
+            rows = db.scalars(select(Suppression).where(Suppression.tenant_id == tenant_of(user))
+                              .order_by(Suppression.id.desc()).limit(limit)).all()
+            return {"total": len(rows), "week": iso_week(), "last_week_restored": 0, "by_reason": [],
+                    "items": [{"id": x.id, "rule_id": x.rule_id, "level": x.level, "agent_name": x.agent_name,
+                               "description": x.description, "reason": x.reason, "created_at": iso(x.created_at),
+                               "outcome": x.review_outcome, "reviewed_by": x.reviewed_by, "full_log": ""} for x in rows]}
     with SessionLocal() as db:
         total = db.scalar(select(func.count(Suppression.id))) or 0
         by_reason = db.execute(select(Suppression.reason, func.count()).group_by(Suppression.reason)
@@ -124,7 +138,7 @@ class Review(BaseModel):
 def review(sid: int, body: Review, user=Depends(analyst)):
     with SessionLocal() as db:
         x = db.get(Suppression, sid)
-        if not x:
+        if not x or (getattr(user, "tenant_id", None) and x.tenant_id != user.tenant_id):
             raise SieveError(NOT_FOUND, "Suppressed alert not found.", status=404)
         if x.review_outcome:
             raise SieveError(BAD_REQUEST, f"Already reviewed as {x.review_outcome}.", status=409)
@@ -142,7 +156,7 @@ def review(sid: int, body: Review, user=Depends(analyst)):
 
 
 @router.get("/api/baselines")
-def baselines(entity: str | None = None, limit: int = Query(200, le=1000), _=Depends(viewer)):
+def baselines(entity: str | None = None, limit: int = Query(200, le=1000), user=Depends(p_viewer)):
     with SessionLocal() as db:
         q = select(Baseline).order_by(Baseline.last_seen.desc())
         if entity:
@@ -152,7 +166,7 @@ def baselines(entity: str | None = None, limit: int = Query(200, le=1000), _=Dep
 
 
 @router.get("/api/coverage")
-async def coverage(_=Depends(viewer)):
+async def coverage(user=Depends(p_viewer)):
     cat = attack_catalogue()
     with SessionLocal() as db:
         seen = Counter(t for (ids,) in db.execute(select(Alert.mitre_ids)).all() for t in (ids or []))
@@ -203,7 +217,7 @@ class Result(BaseModel):
 
 
 @router.post("/api/coverage/results", status_code=201)
-def add_result(body: Result, user=Depends(admin)):
+def add_result(body: Result, user=Depends(p_admin)):
     if not valid_technique(body.technique):
         raise SieveError(BAD_REQUEST, "Unknown ATT&CK technique ID.", status=422)
     with SessionLocal() as db:
@@ -215,7 +229,7 @@ def add_result(body: Result, user=Depends(admin)):
 
 
 @router.get("/api/graph")
-def graph(incident_id: int | None = None, entity: str | None = None, _=Depends(viewer)):
+def graph(incident_id: int | None = None, entity: str | None = None, user=Depends(viewer)):
     with SessionLocal() as db:
         if incident_id:
             i = get_incident(db, incident_id)
@@ -238,8 +252,8 @@ def graph(incident_id: int | None = None, entity: str | None = None, _=Depends(v
         if not conds:
             raise SieveError(BAD_REQUEST, "Unknown entity type.", status=422)
         from sqlalchemy import or_
-        alerts = db.scalars(select(Alert).where(or_(*conds), Alert.timestamp >= t0, Alert.timestamp <= t1)
-                            .limit(5000)).all()
+        alerts = db.scalars(scoped(select(Alert).where(or_(*conds), Alert.timestamp >= t0, Alert.timestamp <= t1),
+                                   Alert.tenant_id, user).limit(5000)).all()
         nodes: dict[str, dict] = {}
         edges: dict[tuple, dict] = defaultdict(lambda: {"count": 0, "incidents": set(), "rules": set()})
 
@@ -282,7 +296,7 @@ class BacktestBody(BaseModel):
 
 
 @router.post("/api/backtest")
-def run_backtest(body: BacktestBody, user=Depends(analyst)):
+def run_backtest(body: BacktestBody, user=Depends(p_analyst)):
     if len(body.rule) > 20000:
         raise SieveError(BAD_REQUEST, "The rule is too long.", status=413)
     res = backtest(body.rule, max(1, min(body.days, 365)))
@@ -291,7 +305,7 @@ def run_backtest(body: BacktestBody, user=Depends(analyst)):
 
 
 @router.get("/api/metrics/summary")
-def metrics_summary(days: int = Query(14, ge=1, le=90), _=Depends(viewer)):
+def metrics_summary(days: int = Query(14, ge=1, le=90), user=Depends(p_viewer)):
     since = (utcnow() - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
     labels = [(since + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(days)]
 
@@ -336,7 +350,7 @@ def _kappa(pairs: list[tuple[str, str]]) -> float | None:
 
 
 @router.get("/api/shadow/agreement")
-def shadow_agreement(since: str | None = None, _=Depends(viewer)):
+def shadow_agreement(since: str | None = None, user=Depends(p_viewer)):
     try:
         t0 = datetime.fromisoformat(since).replace(tzinfo=UTC) if since else utcnow() - timedelta(days=30)
     except ValueError as e:
@@ -359,12 +373,12 @@ def shadow_agreement(since: str | None = None, _=Depends(viewer)):
 
 @router.get("/api/digest")
 def get_digest(version: Literal["manager", "technical"] = "manager", hours: int = Query(24, ge=1, le=168),
-               _=Depends(viewer)):
+               user=Depends(p_viewer)):
     return digest.build(version, hours)
 
 
 @router.post("/api/digest/send")
-async def send_digest(version: Literal["manager", "technical"] = "manager", user=Depends(admin)):
+async def send_digest(version: Literal["manager", "technical"] = "manager", user=Depends(p_admin)):
     res = await digest.send_digest(runtime.current(), version)
     audit(user.username, "digest.sent", version)
     return {"ok": True, "channels": res}

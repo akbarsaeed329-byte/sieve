@@ -3,8 +3,8 @@
   import { get } from '$lib/api.js';
   import Light from '$c/Light.svelte';
   import ErrorBox from '$c/ErrorBox.svelte';
-  let h = $state(null), error = $state(null);
-  async function load() { try { h = await get('/api/health/details'); error = null; } catch (e) { error = e; } }
+  let h = $state(null), error = $state(null), src = $state(null);
+  async function load() { try { h = await get('/api/health/details'); error = null; src = await get('/api/health/sources').catch(() => null); } catch (e) { error = e; } }
   onMount(() => { load(); const t = setInterval(load, 10000); return () => clearInterval(t); });
   const words = { green: 'All systems working', amber: 'Working, with warnings', red: 'Something needs attention', unknown: 'Unknown' };
 </script>
@@ -27,6 +27,14 @@
       <div class="kpi"><span class="small muted">AI calls this hour</span><span class="v">{h.llm.budget.used} / {h.llm.budget.per_hour}</span></div>
       <div class="kpi"><span class="small muted">Alerts processed since start</span><span class="v">{h.metrics.alerts.toLocaleString()}</span></div>
     </section>
+    {#if src}<section class="card pad stack" aria-labelledby="ls"><h2 id="ls">Log sources</h2>
+      <p class="muted small">An agent that suddenly goes quiet is often the first sign of trouble. Sieve learns each agent's normal rhythm and raises an incident when the silence is unusual.</p>
+      {#if src.silent_agents.length}<div class="table-wrap"><table><thead><tr><th>Agent</th><th class="num">Silent for</th><th class="num">Usually every</th></tr></thead><tbody>
+        {#each src.silent_agents as a}<tr><td class="mono">{a.agent_name}</td><td class="num error">{a.silent_hours} h</td><td class="num">{a.usual_gap_hours} h</td></tr>{/each}</tbody></table></div>
+      {:else}<p class="ok-text">Every agent is reporting normally.</p>{/if}
+      {#if src.quiet_rules.length}<h3>Rules that went quiet</h3><p class="small muted">These fired every week before and not once in the last 7 days: a decoder or log source may be broken.</p>
+        <ul class="small">{#each src.quiet_rules as r}<li><span class="mono">{r.rule_id}</span> {r.description}: {r.per_week_before}/week before</li>{/each}</ul>{/if}
+    </section>{/if}
     <p class="small muted">Shadow mode: {h.shadow_mode ? 'on (no notifications sent)' : 'off'} · Active response: {h.active_response ? 'enabled, human approval required' : 'disabled'} · Prometheus metrics at <code>/metrics</code></p>
   {/if}
 </div>

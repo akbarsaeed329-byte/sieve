@@ -96,3 +96,4 @@ async def call_safely(pid: str, coro, timeout: float = 8.0):
 
 
 from .enrichers import abuseipdb as _abuseipdb  # noqa: E402,F401  (registers itself)
+from .enrichers import feeds as _feeds  # noqa: E402,F401

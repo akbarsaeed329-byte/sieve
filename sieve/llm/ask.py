@@ -80,7 +80,7 @@ def parse(q: str) -> dict:
     }
 
 
-def answer(p: dict) -> dict:
+def answer(p: dict, tenant_id: int | None = None) -> dict:
     since = utcnow() - timedelta(days=p["days"])
     with SessionLocal() as db:
         if p["intent"] == "entity":
@@ -91,7 +91,10 @@ def answer(p: dict) -> dict:
                 conds.append(Alert.user == p["user"])
             if p["host"] and not conds:
                 conds.append(Alert.agent_name == p["host"])
-            alerts = db.scalars(select(Alert).where(or_(*conds), Alert.timestamp >= since).limit(5000)).all()
+            aq = select(Alert).where(or_(*conds), Alert.timestamp >= since)
+            if tenant_id:
+                aq = aq.where(Alert.tenant_id == tenant_id)
+            alerts = db.scalars(aq.limit(5000)).all()
             incs = sorted({a.incident_id for a in alerts if a.incident_id})
             rows = db.scalars(select(Incident).where(Incident.id.in_(incs))).all() if incs else []
             by_host = Counter(a.agent_name for a in alerts)
@@ -107,6 +110,8 @@ def answer(p: dict) -> dict:
                 "incidents": [{"id": i.id, "title": i.title, "band": i.band, "status": i.status} for i in rows][:20],
                 "query": {"field": "srcip" if p["ip"] else "user" if p["user"] else "agent_name", "value": subject},
             }
+        if p["intent"] in ("noisy", "suppressed") and tenant_id:
+            p = {**p, "intent": "incidents"}   # provider-level views are not shown to customers
         if p["intent"] == "noisy":
             from ..casework import noisy_rules
 
@@ -121,6 +126,8 @@ def answer(p: dict) -> dict:
             ).all()
             return {"kind": "suppressed", "days": p["days"], "reasons": [{"reason": r, "count": c} for r, c in rows]}
         q = select(Incident).where(Incident.opened_at >= since)
+        if tenant_id:
+            q = q.where(Incident.tenant_id == tenant_id)
         if p["intent"] == "incidents":
             q = q.where(Incident.status.in_(("new", "acknowledged")))
         if p["band"]:
@@ -155,9 +162,9 @@ def plain(ans: dict) -> str:
     return f"{ans['count']} matching incidents in the last {ans['days']} days."
 
 
-async def ask(question: str, settings: Settings) -> dict:
+async def ask(question: str, settings: Settings, tenant_id: int | None = None) -> dict:
     p = parse(question)
-    ans = answer(p)
+    ans = answer(p, tenant_id)
     text, source = plain(ans), "rules"
     if settings.llm.enabled:
         res = await complete_json(

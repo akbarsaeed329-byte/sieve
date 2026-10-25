@@ -129,7 +129,7 @@ def require_role(*roles: str) -> Callable:
         secret = runtime.current().secret_key
         auth_h = request.headers.get("authorization", "")
         if not sieve_session and auth_h.lower().startswith("bearer sv_"):
-            return _token_user(auth_h[7:].strip(), roles, db)
+            return _token_user(auth_h[7:].strip(), roles, db, request)
         if not sieve_session:
             raise _deny(401, AUTH_REQUIRED, "Not signed in.")
         try:
@@ -153,27 +153,53 @@ def require_role(*roles: str) -> Callable:
     return dep
 
 
-def _token_user(tok: str, roles: tuple, db: Session) -> User:
-    """API tokens act as a synthetic user with the token's role. No cookie, so no CSRF needed."""
+# MCP gateway / token scopes: path prefix -> scope name. A token with scopes only reaches those endpoints.
+SCOPES = {
+    "incidents:read": [("GET", "/api/incidents"), ("GET", "/api/stats"), ("GET", "/api/playbooks")],
+    "incidents:write": [("POST", "/api/incidents")],
+    "ask": [("POST", "/api/ask")],
+    "reports": [("GET", "/api/reports"), ("GET", "/api/digest"), ("GET", "/api/pilot")],
+    "intel": [("GET", "/api/tenants/cross-attackers"), ("GET", "/api/agents")],
+    "admin": [("GET", "/api/"), ("POST", "/api/"), ("PUT", "/api/"), ("DELETE", "/api/")],
+}
+
+
+def scope_allows(scopes: list | None, method: str, path: str) -> bool:
+    if scopes is None:
+        return True
+    return any(method == m and path.startswith(p) for sc in scopes for m, p in SCOPES.get(sc, []))
+
+
+def _token_user(tok: str, roles: tuple, db: Session, request: Request | None = None) -> User:
+    """API tokens act as a synthetic user with the token's role and tenant. No cookie, so no CSRF needed."""
     row = db.scalar(select(ApiToken).where(ApiToken.token_hash == hashlib.sha256(tok.encode()).hexdigest()))
     if row is None or row.revoked or (row.expires_at and aware(row.expires_at) < utcnow()):
         raise _deny(401, AUTH_REQUIRED, "API token invalid, revoked or expired.")
+    if request is not None and not scope_allows(row.scopes, request.method, request.url.path):
+        raise _deny(403, "SIEVE-AUTH-451", "This API token's scopes do not include this endpoint.")
     if roles and row.role not in roles:
         raise _deny(403, AUTH_REQUIRED, f"This needs the {' or '.join(roles)} role.")
-    row.last_used_at = utcnow()
+    from . import ratelimit
+    try:
+        ratelimit.check("token", str(row.id))
+    except SieveError as e:
+        raise _deny(429, e.code, e.message) from e
+    row.last_used_at, row.use_count = utcnow(), (row.use_count or 0) + 1
     db.commit()
     u = User(id=-row.id, username=f"token:{row.name}"[:80], password_hash="", role=row.role)
+    u.tenant_id = row.tenant_id
     return u
 
 
-def create_api_token(name: str, role: str, actor: str, days: int | None) -> tuple[str, ApiToken]:
+def create_api_token(name: str, role: str, actor: str, days: int | None, scopes: list | None = None,
+                     tenant_id: int | None = None) -> tuple[str, ApiToken]:
     if role not in ROLES:
         raise SieveError(BAD_REQUEST, f"Unknown role {role}.", status=422)
     tok = "sv_" + secrets.token_urlsafe(32)
     with SessionLocal() as db:
         row = ApiToken(name=name.strip()[:80] or "token", token_hash=hashlib.sha256(tok.encode()).hexdigest(),
                        prefix=tok[:10], role=role, created_by=actor,
-                       expires_at=utcnow() + timedelta(days=days) if days else None)
+                       expires_at=utcnow() + timedelta(days=days) if days else None, scopes=scopes, tenant_id=tenant_id)
         db.add(row)
         db.commit()
         return tok, row
@@ -182,6 +208,22 @@ def create_api_token(name: str, role: str, actor: str, days: int | None) -> tupl
 viewer = require_role("admin", "analyst", "viewer")
 analyst = require_role("admin", "analyst")
 admin = require_role("admin")
+
+
+def provider(*roles: str) -> Callable:
+    """Provider-staff only: customer (tenant) users and tokens are refused."""
+    inner = require_role(*roles)
+
+    def dep(user: User = Depends(inner)) -> User:
+        if getattr(user, "tenant_id", None):
+            raise _deny(403, AUTH_REQUIRED, "This page is for the service provider's staff.")
+        return user
+    return dep
+
+
+p_viewer = provider("admin", "analyst", "viewer")
+p_analyst = provider("admin", "analyst")
+p_admin = provider("admin")
 
 
 def login(username: str, password: str, db: Session, secret: str, otp: str | None = None) -> tuple[str, User]:
@@ -239,12 +281,14 @@ def _hash_token(tok: str) -> str:
     return hashlib.sha256(tok.encode()).hexdigest()
 
 
-def create_invite(role: str, actor: str) -> str:
+def create_invite(role: str, actor: str, tenant_id: int | None = None) -> str:
     if role not in ROLES:
         raise SieveError(BAD_REQUEST, f"Unknown role {role}.", status=422)
     tok = secrets.token_urlsafe(24)
     with SessionLocal() as db:
-        db.add(Invite(token_hash=_hash_token(tok), role=role, created_by=actor,
+        if tenant_id and role == "admin":
+            raise SieveError(BAD_REQUEST, "Customer users can be analysts or viewers, not admins.", status=422)
+        db.add(Invite(token_hash=_hash_token(tok), role=role, created_by=actor, tenant_id=tenant_id,
                       expires_at=utcnow() + timedelta(hours=INVITE_HOURS)))
         db.commit()
     return tok
@@ -261,6 +305,12 @@ def invite_info(tok: str) -> Invite:
 def accept_invite(tok: str, username: str, password: str) -> User:
     inv = invite_info(tok)
     u = create_user(username, password, inv.role)
+    if inv.tenant_id:
+        with SessionLocal() as db:
+            row = db.get(User, u.id)
+            row.tenant_id = inv.tenant_id
+            db.commit()
+            u.tenant_id = inv.tenant_id
     with SessionLocal() as db:
         row = db.get(Invite, inv.id)
         if row.used_at:  # raced
@@ -278,6 +328,8 @@ def set_role(user_id: int, role: str) -> tuple[User, str]:
         if not u:
             raise SieveError("SIEVE-API-404", "User not found.", status=404)
         old = u.role
+        if u.tenant_id and role == "admin":
+            raise SieveError(BAD_REQUEST, "Customer users can be analysts or viewers, not admins.", status=422)
         if old == "admin" and role != "admin":
             admins = db.scalar(select(func.count(User.id)).where(User.role == "admin")) or 0
             if admins <= 1:

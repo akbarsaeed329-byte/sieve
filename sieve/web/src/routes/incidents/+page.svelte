@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from '$lib/api.js';
+  import { app } from '$lib/state.svelte.js';
   import Queue from '$c/Queue.svelte';
   import ErrorBox from '$c/ErrorBox.svelte';
   let status = $state('open'), band = $state(''), q = $state(''), data = $state({ items: [], total: 0 }), error = $state(null);
@@ -8,9 +9,11 @@
     const p = new URLSearchParams({ status, limit: '200' });
     if (band) p.set('band', band);
     if (q) p.set('q', q);
+    if (app.tenant && !app.me?.tenant_id) p.set('tenant', app.tenant);
     try { data = await get('/api/incidents?' + p); error = null; } catch (e) { error = e; }
   }
-  onMount(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); });
+  onMount(() => { const t = setInterval(load, 15000); return () => clearInterval(t); });
+  $effect(() => { app.tenant; load(); });
 </script>
 <svelte:head><title>Incidents · Sieve</title></svelte:head>
 <div class="stack-lg">

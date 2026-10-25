@@ -1,5 +1,6 @@
 // App-wide state (Svelte 5 runes). Simple mode hides Investigate, Coverage, Metrics and Rules (doc 9.3).
-export const app = $state({ me: null, advanced: false, health: null, toast: '' });
+export const app = $state({ me: null, advanced: false, health: null, toast: '', tenant: '', tenants: [] });
+export const tq = (sep = '&') => (app.tenant && !app.me?.tenant_id ? `${sep}tenant=${app.tenant}` : '');
 
 let t;
 export function toast(msg) {

@@ -16,7 +16,7 @@ from ..models import ChecklistTick, Comment, Explanation, Incident, utcnow
 from ..pipeline import playbooks
 from ..pipeline.facts import facts
 from ..pipeline.score import BAND_ORDER
-from .common import SessionLocal, get_incident, iso
+from .common import SessionLocal, get_incident, iso, scoped
 
 router = APIRouter(prefix="/api/incidents", tags=["Incidents"])
 STATUSES = ("new", "acknowledged", "resolved", "false_positive", "merged", "auto_closed")
@@ -31,7 +31,8 @@ def summary(i: Incident) -> dict:
             "partial_context": i.partial_context, "is_selftest": i.is_selftest, "human_band": i.human_band,
             "tags": i.tags or [], "sla_due": iso(i.sla_due), "escalated_at": iso(i.escalated_at),
             "maintenance": i.maintenance, "merged_into": i.merged_into, "team": i.team,
-            "correlations": i.correlations or [], "ticket_ref": i.ticket_ref}
+            "correlations": i.correlations or [], "ticket_ref": i.ticket_ref, "tenant_id": i.tenant_id,
+            "explained_count": i.explained_count or 0}
 
 
 def sort_key(i: Incident):
@@ -41,9 +42,10 @@ def sort_key(i: Incident):
 
 @router.get("")
 def list_incidents(status: str = Query("all"), band: str | None = None, q: str | None = None,
-                   limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0), _=Depends(viewer)):
+                   limit: int = Query(100, ge=1, le=500), offset: int = Query(0, ge=0), tenant: int | None = None,
+                   user=Depends(viewer)):
     with SessionLocal() as db:
-        stmt = select(Incident)
+        stmt = scoped(select(Incident), Incident.tenant_id, user, tenant)
         if status == "open":
             stmt = stmt.where(Incident.status.in_(OPEN))
         elif status == "closed":
@@ -64,7 +66,7 @@ def list_incidents(status: str = Query("all"), band: str | None = None, q: str |
 def get_detail(inc_id: int, user=Depends(viewer)):
     s = runtime.current()
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         exps = db.scalars(select(Explanation).where(Explanation.incident_id == inc_id)
                           .order_by(Explanation.created_at.desc())).all()
         ex = next((e for e in exps if e.kind == "summary"), None)
@@ -112,9 +114,9 @@ def _require_evidence(db, i: Incident, who: str, user_id: int) -> None:
                          "Scroll to Evidence (or press E) and check at least one log line, then try again.", status=428)
 
 
-def _transition(inc_id: int, status: str, who: str, reason: str = "", user_id: int = 0) -> dict:
+def _transition(inc_id: int, status: str, who: str, reason: str = "", user_id: int = 0, user=None) -> dict:
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         if status in ("resolved", "false_positive"):
             _require_evidence(db, i, who, user_id)
         before = i.status
@@ -149,6 +151,14 @@ def _emit_status(inc_id: int) -> None:
         if inc.status in ("resolved", "false_positive"):
             from ..notify.dispatch import on_resolved
             await on_resolved(inc, runtime.current())
+        if inc.status == "resolved" and inc.srcip:
+            from ..plugins import is_enabled
+            from ..plugins.enrichers.feeds import misp_sighting
+            if is_enabled(runtime.current(), "misp"):
+                try:
+                    await misp_sighting(inc.srcip, runtime.current())
+                except Exception:  # noqa: BLE001
+                    pass
     try:
         asyncio.get_running_loop().create_task(both())
     except RuntimeError:
@@ -157,12 +167,12 @@ def _emit_status(inc_id: int) -> None:
 
 @router.post("/{inc_id}/acknowledge")
 def acknowledge(inc_id: int, user=Depends(analyst)):
-    return _transition(inc_id, "acknowledged", user.username)
+    return _transition(inc_id, "acknowledged", user.username, user=user)
 
 
 @router.post("/{inc_id}/resolve")
 def resolve(inc_id: int, n: Note | None = None, user=Depends(analyst)):
-    return _transition(inc_id, "resolved", user.username, (n or Note()).reason, user.id)
+    return _transition(inc_id, "resolved", user.username, (n or Note()).reason, user.id, user)
 
 
 @router.post("/{inc_id}/false-positive")
@@ -170,12 +180,12 @@ def false_positive(inc_id: int, n: Note, user=Depends(analyst)):
     if not n.reason.strip():
         raise SieveError(BAD_REQUEST, "Say why this is a false positive; the reason tunes future filtering.",
                          status=422)
-    return _transition(inc_id, "false_positive", user.username, n.reason, user.id)
+    return _transition(inc_id, "false_positive", user.username, n.reason, user.id, user)
 
 
 @router.post("/{inc_id}/reopen")
 def reopen(inc_id: int, user=Depends(analyst)):
-    return _transition(inc_id, "new", user.username)
+    return _transition(inc_id, "new", user.username, user=user)
 
 
 class Tick(BaseModel):
@@ -186,7 +196,7 @@ class Tick(BaseModel):
 def tick(inc_id: int, step_id: str, body: Tick | None = None, user=Depends(analyst)):
     checked = (body or Tick()).checked
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         pb = playbooks.render(i.playbook, i.user, i.srcip, i.agent_name) or {"steps": []}
         if step_id not in {s["id"] for s in pb["steps"]}:
             raise SieveError(BAD_REQUEST, "That step is not in this incident's playbook.", status=422)
@@ -206,7 +216,7 @@ def tick(inc_id: int, step_id: str, body: Tick | None = None, user=Depends(analy
 async def explain(inc_id: int, user=Depends(analyst)):
     from ..llm.explain import explain_incident
     with SessionLocal() as db:
-        get_incident(db, inc_id)
+        get_incident(db, inc_id, user)
     res = await explain_incident(inc_id, runtime.current())
     audit(user.username, "incident.explain", f"INC-{inc_id}", ok=res is not None)
     return {"ok": res is not None, "explanation": res,
@@ -217,7 +227,7 @@ async def explain(inc_id: int, user=Depends(analyst)):
 async def run_investigation(inc_id: int, user=Depends(analyst)):
     from ..llm.investigate import investigate
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         if i.band != "critical":
             raise SieveError(BAD_REQUEST, "Investigation runs for critical incidents only.", status=422)
     res = await investigate(inc_id, runtime.current())
@@ -226,9 +236,9 @@ async def run_investigation(inc_id: int, user=Depends(analyst)):
 
 
 @router.get("/{inc_id}/stix")
-def export_stix(inc_id: int, _=Depends(viewer)):
+def export_stix(inc_id: int, user=Depends(viewer)):
     with SessionLocal() as db:
-        return stix.bundle(get_incident(db, inc_id))
+        return stix.bundle(get_incident(db, inc_id, user))
 
 
 class HumanBand(BaseModel):
@@ -238,7 +248,7 @@ class HumanBand(BaseModel):
 @router.post("/{inc_id}/human-band")
 def human_band(inc_id: int, body: HumanBand, user=Depends(analyst)):
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         before = i.human_band
         i.human_band, i.human_band_by = body.band, user.username
         db.commit()
@@ -259,7 +269,7 @@ async def active_response(inc_id: int, action: Literal["firewall-drop", "disable
     if body.confirm is not True:
         raise SieveError(AR_NOT_CONFIRMED, "Confirm the action to run it.", status=428)
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         agent_id, srcip, usr = i.agent_id, i.srcip, i.user
     try:
         res = await wazuh_response.run(s, action, agent_id, srcip, usr)

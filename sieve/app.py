@@ -98,8 +98,8 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             resp.headers.setdefault("Cache-Control", "no-store")
         return resp
 
-    from .api import admin, auth_routes, cases, data, health, incidents, ingest, metrics, nis2, smart
-    for r in (ingest.router, auth_routes.router, cases.router, smart.router, incidents.router, nis2.router,
+    from .api import admin, auth_routes, cases, data, health, incidents, ingest, metrics, nis2, smart, v04
+    for r in (ingest.router, auth_routes.router, cases.router, smart.router, v04.router, incidents.router, nis2.router,
               admin.router, data.router,
               health.router, metrics.router):
         app.include_router(r)

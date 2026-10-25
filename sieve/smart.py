@@ -40,6 +40,8 @@ def correlation_hits(db, a: Alert) -> list[tuple[CorrelationRule, int]]:
     """Rules whose THEN matches this alert and whose FIRST occurred earlier on the same entity."""
     out = []
     for rule in db.scalars(select(CorrelationRule).where(CorrelationRule.enabled.is_(True))).all():
+        if rule.tenant_id is not None and rule.tenant_id != a.tenant_id:
+            continue
         if not cond_matches(rule.then or {}, a):
             continue
         q = select(Alert).where(

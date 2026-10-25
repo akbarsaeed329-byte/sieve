@@ -5,8 +5,11 @@
   import { app, toast } from '$lib/state.svelte.js';
   import { errText } from '$lib/util.js';
   let rows = $state([]), exc = $state([]), days = $state(30), ac = $state(null), wt = $state(null);
-  const load = async () => { [rows, exc, ac, wt] = await Promise.all([get(`/api/tuning/noisy-rules?days=${days}`), get('/api/exceptions'),
-    get('/api/autoclose/candidates'), get('/api/tuning/weights')]); };
+  let error = $state(null);
+  const load = async () => {
+    try { [rows, exc, ac, wt] = await Promise.all([get(`/api/tuning/noisy-rules?days=${days}`), get('/api/exceptions'),
+      get('/api/autoclose/candidates'), get('/api/tuning/weights')]); error = null; } catch (e) { error = e; }
+  };
   async function approve(rule, on) {
     const list = on ? [...new Set([...ac.rules.filter((r) => r.approved).map((r) => r.rule_id), rule])] : ac.rules.filter((r) => r.approved && r.rule_id !== rule).map((r) => r.rule_id);
     try { await put('/api/settings', { autoclose: { rules: list } }); toast(on ? `Rule ${rule} may auto-close while it keeps its record.` : `Auto-close off for rule ${rule}.`); load(); } catch (e) { toast(errText(e)); } }
@@ -19,6 +22,7 @@
   <header class="row between" style="align-items:flex-end"><div class="stack" style="gap:6px"><h1>Tuning</h1>
     <p class="muted">Your verdicts tune detection. Rules that keep producing false positives rise to the top, with a suggested fix.</p></div>
     <div class="field"><label for="d">Period</label><select id="d" bind:value={days} onchange={load}><option value={7}>7 days</option><option value={30}>30 days</option><option value={90}>90 days</option></select></div></header>
+  {#if error}<div class="banner bad" role="alert">{error.message} {error.fix || ''}</div>{/if}
   <section class="stack" aria-labelledby="nr"><h2 id="nr">Rules by false-positive rate</h2>
     <div class="card table-wrap"><table><thead><tr><th>Rule</th><th class="num">Alerts</th><th class="num">Suppressed</th><th class="num">False positives</th><th class="num">Confirmed</th><th>Suggestion</th></tr></thead>
       <tbody>{#each rows as r}<tr><td><span class="mono">{r.rule_id}</span><br /><span class="small muted">{r.description}</span></td>

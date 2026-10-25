@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { get } from '$lib/api.js';
   let d = $state({ items: [], total: 0 }), offset = $state(0), action = $state('');
-  const load = async () => (d = await get(`/api/audit?limit=50&offset=${offset}${action ? '&action=' + encodeURIComponent(action) : ''}`));
+  const load = async () => { try { d = await get(`/api/audit?limit=50&offset=${offset}${action ? '&action=' + encodeURIComponent(action) : ''}`); } catch { /* access denied or offline: keep the page usable */ } };
   onMount(load);
 </script>
 <p class="muted">Append-only: the database refuses to change or delete entries. Secrets are never recorded, only that they changed.</p>

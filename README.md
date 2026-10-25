@@ -22,7 +22,10 @@ Sieve sits between Wazuh and your team. It:
    suggestions from your verdicts, auto-close that a rule has to earn, team routing, and a practice mode for juniors.
 9. **Fits your stack.** Teams, PagerDuty, Jira (two-way), TheHive, webhooks, SSO, Wazuh dashboard links, and a
    read-only MCP server for your own AI assistant. Ask it questions in plain English.
-10. **Works with no AI at all**, with a local model (Ollama), or with a cloud model (masked by default).
+10. **Serves many customers.** Multi-tenant for service providers, with strict isolation and a cross-customer attacker view.
+11. **Keeps you compliant.** NIS2, DORA and GDPR clocks on every incident, and sealed evidence packs.
+12. **Proves itself.** A pilot report and an injection self-test on your own data.
+13. **Works with no AI at all**, with a local model (Ollama), or with a cloud model (masked by default).
 
 ## How it compares (details and sources: [docs/COMPARISON.md](docs/COMPARISON.md))
 
@@ -99,7 +102,7 @@ docs/            ARCHITECTURE · STATUS · EVALUATION · ERROR_CODES · PLUGINS 
 ## Develop
 ```bash
 pip install -e ".[dev]"
-make lint test     # 240 tests; 80%+ coverage required on pipeline and llm
+make lint test     # 266 tests; 80%+ coverage required on pipeline and llm
 make web           # rebuild the UI (Node 20+)
 make bench         # PoisonedLogs harness
 ```

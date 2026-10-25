@@ -1,4 +1,4 @@
-# Status: what exists vs. the plan (v0.3.0, 2026-10-18)
+# Status: what exists vs. the plan (v0.4.0, 2026-10-18)
 
 done = works and is tested; partial = works with stated limits; todo = not started. Item numbers refer to
 MASTER_AI_PROMPT.md.
@@ -53,6 +53,14 @@ MASTER_AI_PROMPT.md.
 | Wazuh dashboard deep links (/go/alert/{id}) | done | v0.3; a native dashboard plugin is todo |
 | SSO (OIDC with PKCE) | done | v0.3; SAML is todo |
 | Signed releases, SBOM, provenance | done | v0.3 release workflow |
+| Pilot report and injection self-test on your own data | done | v0.4 |
+| AI governance page; scoped, per-tenant, rate-limited tokens (MCP gateway) | done | v0.4 |
+| Multi-tenancy (agent groups or host patterns), isolation, cross-customer attackers, white-label reports | done | v0.4 |
+| NIS2 / DORA / GDPR clocks, DORA classification helper, sealed evidence pack | done | v0.4 |
+| Workflow rules, investigation report, stale-summary badge | done | v0.4 |
+| Vulnerability term, silent sources, quiet rules, rule drafts for gaps | done | v0.4 |
+| MISP (two-way), OTX, ThreatFox | done | v0.4 |
+| Telegram/Slack buttons, PWA push, on-call | done | v0.4; Teams buttons need a Bot Framework app (todo) |
 | Plugin SDK out-of-process | todo | ADR-006 (in-process with containment for now) |
 | Alembic migrations | todo | ADR-005 (additive migrations for 0.x) |
 | Real-model benchmark, ablations, usability study | todo | needs the Phase-0 lab |
@@ -60,6 +68,5 @@ MASTER_AI_PROMPT.md.
 Validation still needed: everything has been tested against stand-ins and a synthetic seed set, not a live Wazuh
 lab with real users. See docs/EVALUATION.md.
 
-| Multi-tenant (MSSP) | todo | |
 | High availability (multiple workers, Postgres) | todo | one worker sustains ~190 alerts/s on SQLite (benchmark/load.py) |
 | Native Wazuh dashboard plugin | todo | |

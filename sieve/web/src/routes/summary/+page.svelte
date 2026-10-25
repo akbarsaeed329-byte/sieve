@@ -3,9 +3,11 @@
   import { onMount } from 'svelte';
   import { get } from '$lib/api.js';
   import { BAND } from '$lib/util.js';
+  import { page } from '$app/state';
+  import { app } from '$lib/state.svelte.js';
   import Pill from '$c/Pill.svelte';
   let e = $state(null), h = $state(null), days = $state(7), tab = $state('exec');
-  const load = async () => { [e, h] = await Promise.all([get(`/api/reports/executive?days=${days}`), get('/api/reports/handover?hours=12')]); };
+  const load = async () => { try { const t = page.url.searchParams.get('tenant') || (app.me?.tenant_id ? '' : app.tenant); [e, h] = await Promise.all([get(`/api/reports/executive?days=${days}${t ? '&tenant=' + t : ''}`), get('/api/reports/handover?hours=12')]); } catch { /* keep the page usable */ } };
   onMount(load);
   const v = (x, suf = '') => (x === null || x === undefined ? '–' : `${x}${suf}`);
 </script>
@@ -20,6 +22,7 @@
       <button class="btn" onclick={() => window.print()}>Print / save PDF</button></div></header>
   {#if tab === 'exec' && e}
     <section class="card pad stack">
+      {#if e.brand?.name}<div class="brandbar" style="border-color:{e.brand.color || 'var(--brand)'}"><strong>{e.brand.title || e.brand.name}</strong></div>{/if}
       <h2>Security summary, last {e.days} days</h2>
       <p style="font-size:16px">Your systems produced <strong>{e.alerts.toLocaleString()}</strong> security alerts. Sieve handled
         {v(e.noise_reduction_pct, '%')} of them automatically and raised <strong>{e.notified_incidents}</strong> to people.
@@ -49,6 +52,7 @@
   {/if}
 </div>
 <style>
+  .brandbar { border-left: 6px solid; padding: 6px 12px; font-size: 18px; }
   .seg2 { display: flex; border: 1px solid var(--input); border-radius: 8px; overflow: hidden; }
   .seg2 button { min-height: 44px; padding: 0 14px; border: none; background: var(--card); color: var(--ink); cursor: pointer; font: 500 14px var(--sans); }
   .seg2 button[aria-selected=true] { background: var(--ink); color: var(--ground); }

@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { get } from '$lib/api.js';
   import ErrorBox from '$c/ErrorBox.svelte';
-  let c = $state(null), error = $state(null), show = $state('all');
+  import { post } from '$lib/api.js';
+  let c = $state(null), error = $state(null), show = $state('all'), tech = $state(''), d = $state(null);
+  async function draft(t) { tech = t; d = await get(`/api/coverage/draft/${encodeURIComponent(t)}`).catch((e) => ({ available: false, message: e.message })); setTimeout(() => document.getElementById('draft')?.scrollIntoView({ behavior: 'smooth' }), 50); }
   onMount(async () => { try { c = await get('/api/coverage'); } catch (e) { error = e; } });
   const L = { missed: 'Tested and missed', detected: 'Tested and detected', rule: 'Rule exists', none: 'No rule seen' };
 </script>
@@ -21,11 +23,21 @@
         <div class="col" role="listitem"><h3>{t.name}</h3>
           {#each t.techniques.filter((x) => show === 'all' || x.state === show) as x}
             <a class="cell {x.state}" href="https://attack.mitre.org/techniques/{x.id}/" target="_blank" rel="noopener noreferrer"
+              onclick={(e) => { if (x.state === 'none' || x.state === 'missed') { e.preventDefault(); draft(x.id); } }}
               title="{x.id} {x.name}: {L[x.state]}{x.alerts ? `, ${x.alerts} alerts` : ''}"><span class="mono">{x.id}</span> {x.name}<span class="sr-only">: {L[x.state]}</span>{#if x.state === 'missed'} ✕{:else if x.state === 'detected'} ✓{/if}</a>
           {/each}
         </div>
       {/each}
     </div>
+    <section class="card pad stack" id="draft" aria-labelledby="dr"><h2 id="dr">Close a gap</h2>
+      <p class="muted small">Click a grey or red technique, or type one. Sieve shows a reviewed rule draft and backtests it on your last 30 days. It never deploys rules.</p>
+      <form class="row" onsubmit={(e) => { e.preventDefault(); draft(tech); }}><input type="text" aria-label="Technique" bind:value={tech} placeholder="T1110" style="max-width:160px" /><button class="btn">Draft</button></form>
+      {#if d}{#if d.available}<h3>{d.technique}: {d.title}</h3>
+        <p class="small">Backtest (30 days): would fire {d.backtest?.would_fire ?? '?'} time(s){d.backtest?.would_have_caught?.length ? `, catching ${d.backtest.would_have_caught.length} incident(s)` : ''}.</p>
+        <details open><summary class="small">Wazuh rule (add to local_rules.xml)</summary><pre class="log">{d.wazuh}</pre></details>
+        <details><summary class="small">Sigma</summary><pre class="log">{d.sigma}</pre></details><p class="small muted">{d.note}</p>
+      {:else}<p class="muted">{d.message}</p>{/if}{/if}
+    </section>
   {/if}
 </div>
 <style>

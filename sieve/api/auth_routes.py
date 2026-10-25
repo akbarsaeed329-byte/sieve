@@ -68,7 +68,8 @@ def do_logout(response: Response, user=Depends(viewer)):
 def me(user=Depends(viewer)):
     s = runtime.current()
     return {"id": user.id, "username": user.username, "role": user.role, "totp_enabled": bool(user.totp_enabled),
-            "trainee": bool(getattr(user, "trainee", False)),
+            "trainee": bool(getattr(user, "trainee", False)), "tenant_id": getattr(user, "tenant_id", None),
+            "multi_tenant": s.multi_tenant,
             "must_enroll_2fa": bool(s.require_2fa_for_admins and user.role == "admin" and not user.totp_enabled),
             "simple_mode_default": s.simple_mode_default}
 

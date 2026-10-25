@@ -71,6 +71,7 @@ AUTH_TOTP = "SIEVE-AUTH-449"
 RATE_LIMITED = "SIEVE-RATE-429"
 AUTH_2FA_REQUIRED = "SIEVE-AUTH-450"
 CASE_EVIDENCE = "SIEVE-CASE-428"
+TOKEN_SCOPE = "SIEVE-AUTH-451"
 SSO_ERROR = "SIEVE-SSO-502"
 SSO_OFF = "SIEVE-SSO-404"
 
@@ -113,6 +114,7 @@ FIXES: dict[str, str] = {
     PLUGIN_BAD_SETTINGS: "Fix the highlighted field; the plugin's settings schema rejected the value.",
     AUTH_TOTP: "Enter the current 6-digit code from your authenticator app; check the phone's clock if it keeps failing.",
     RATE_LIMITED: "Wait a minute and try again.",
+    TOKEN_SCOPE: "Create a token with the scope this integration needs (Settings > AI & tokens).",
     CASE_EVIDENCE: "Open the incident's evidence first (press E on the incident page), then close it.",
     SSO_ERROR: "Check the OIDC issuer URL and that Sieve can reach it; see Settings > Security.",
     SSO_OFF: "An admin can configure single sign-on under Settings > Security.",

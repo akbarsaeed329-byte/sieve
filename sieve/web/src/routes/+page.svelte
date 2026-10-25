@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from '$lib/api.js';
-  import { app } from '$lib/state.svelte.js';
+  import { app, tq } from '$lib/state.svelte.js';
   import { ago, fmt, plural } from '$lib/util.js';
   import Pill from '$c/Pill.svelte';
   import Queue from '$c/Queue.svelte';
@@ -10,12 +10,13 @@
   let st = $state(null), q = $state([]), hidden = $state(null), error = $state(null), search = $state('');
   async function load() {
     try {
-      [st, q, hidden] = await Promise.all([get('/api/stats'), get(`/api/incidents?status=all&limit=50${search ? '&q=' + encodeURIComponent(search) : ''}`).then((r) => r.items),
+      [st, q, hidden] = await Promise.all([get(`/api/stats${tq('?')}`), get(`/api/incidents?status=all&limit=50${tq()}${search ? '&q=' + encodeURIComponent(search) : ''}`).then((r) => r.items),
         get('/api/suppressions?sampled=true')]);
       error = null;
     } catch (e) { error = e; }
   }
-  onMount(() => { load(); const t = setInterval(load, 10000); return () => clearInterval(t); });
+  onMount(() => { const t = setInterval(load, 10000); return () => clearInterval(t); });
+  $effect(() => { app.tenant; load(); });
   const hour = new Date().getHours();
   const hello = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
   let reviewed = $derived(hidden ? hidden.items.filter((x) => x.outcome).length : 0);

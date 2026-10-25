@@ -54,7 +54,8 @@ def _secret_names(s) -> list[str]:
              s.notify.discord.webhook_env, s.wazuh.password_env, s.wazuh.indexer_password_env,
              s.intel.abuseipdb_key_env, s.notify.email.password_env, s.jira.token_env, s.thehive.token_env]
     names += [w.secret_env for w in s.webhooks if w.secret_env]
-    names += [s.teams.webhook_env, s.pagerduty.routing_key_env, s.oidc.client_secret_env, "SIEVE_JIRA_WEBHOOK_SECRET"]
+    names += [s.teams.webhook_env, s.pagerduty.routing_key_env, s.oidc.client_secret_env, "SIEVE_JIRA_WEBHOOK_SECRET",
+              s.chatops.telegram_webhook_secret_env, s.chatops.slack_signing_secret_env]
     names += [p.api_key_env for p in s.llm.providers if p.api_key_env]
     for m in plugins.REGISTRY.values():
         for f in m.secret_fields:

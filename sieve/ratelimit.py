@@ -9,7 +9,7 @@ from .errors import SieveError
 
 _hits: dict[tuple[str, str], deque] = defaultdict(deque)
 _lock = threading.Lock()
-LIMITS = {"login": (20, 60), "ingest": (600, 60), "invite": (20, 60), "totp": (10, 60)}
+LIMITS = {"token": (300, 60), "login": (20, 60), "ingest": (600, 60), "invite": (20, 60), "totp": (10, 60)}
 
 
 def check(bucket: str, key: str) -> None:

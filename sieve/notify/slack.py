@@ -38,8 +38,13 @@ def blocks(m: dict) -> list[dict]:
                   "AI. Treated as data; severity comes from rules."}]})
         box = f"*Untrusted: {_code(m['untrusted_field'])}*\n```{_code(m['untrusted_excerpt'])}```"
         b.append({"type": "section", "text": {"type": "mrkdwn", "text": box}})
-    b.append({"type": "actions", "elements": [{"type": "button", "text": {"type": "plain_text", "text": "Open"},
-                                               "url": m["url"], "style": "primary"}]})
+    els = [{"type": "button", "text": {"type": "plain_text", "text": "Open"}, "url": m["url"], "style": "primary"}]
+    if m.get("buttons"):
+        inc_id = int(m["ref"].split("-")[1])
+        def btn(action: str, label: str, value: str) -> dict:
+            return {"type": "button", "action_id": action, "text": {"type": "plain_text", "text": label}, "value": value}
+        els += [btn("sieve_ack", "Acknowledge", f"ack:{inc_id}"), btn("sieve_mine", "Assign to me", f"mine:{inc_id}")]
+    b.append({"type": "actions", "elements": els})
     return b
 
 
@@ -68,6 +73,8 @@ class SlackNotifier(Notifier):
             raise SieveError(NOTIFY_FAILED, f"Slack webhook failed with HTTP {r.status_code}.", status=502)
 
     async def _deliver(self, m: dict, ts: str | None = None) -> dict:
+        from .. import runtime
+        m = {**m, "buttons": runtime.current().chatops.slack_buttons and bool(self._token)}
         body = {"text": f"{m['band_label']} {m['ref']}: {m['title']}", "blocks": blocks(m),
                 "unfurl_links": False}
         if self._token and self._channel:

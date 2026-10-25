@@ -90,3 +90,11 @@ profile: { organisation: "", industry: "", business_hours: "08:00-18:00", timezo
 teams: { enabled: false, webhook_env: SIEVE_TEAMS_WEBHOOK }
 pagerduty: { enabled: false, routing_key_env: SIEVE_PAGERDUTY_KEY, min_band: critical }
 oidc: { enabled: false, issuer: "", client_id: "", client_secret_env: SIEVE_OIDC_CLIENT_SECRET, admin_groups: [], analyst_groups: [], default_role: viewer }
+
+# --- v0.4 ---
+multi_tenant: false                 # MSSP mode: map agents to customers (Settings > Customers)
+compliance: { nis2: true, dora: false, gdpr: true }
+silence: { enabled: true, min_hours: 6, factor: 4 }      # silent-source incidents
+pilot: { minutes_per_alert: 2.0, raw_notify_level: 7 }   # assumptions shown in the pilot report
+chatops: { telegram_buttons: true, telegram_webhook_secret_env: SIEVE_TELEGRAM_WEBHOOK_SECRET, slack_buttons: true, slack_signing_secret_env: SIEVE_SLACK_SIGNING_SECRET, web_push: true }
+vuln_min_severity: high             # V term: open critical/high vulnerabilities on the host

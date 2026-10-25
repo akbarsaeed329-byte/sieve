@@ -118,7 +118,7 @@ def compute_score(
         label = settings.criticality_label(incident.agent_name)
         parts.append(("asset", f"{incident.agent_name or 'Host'} is tagged {label}", A, w.asset))
     if V:
-        parts.append(("vuln", "Unpatched related vulnerability on this host", V, w.vuln))
+        parts.append(("vuln", "Unpatched critical or high vulnerability on this host", V, w.vuln))
     if T:
         parts.append(("intel", "Source IP on a threat-intel list", T, w.intel))
     if C:

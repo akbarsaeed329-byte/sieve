@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from .. import runtime, secrets_store
-from ..auth import admin, analyst, audit, viewer
+from ..auth import audit, p_admin, p_analyst, p_viewer, viewer
 from ..config import apply_update, save_override
 from ..errors import AUTH_REQUIRED, BAD_REQUEST, NOT_FOUND, SieveError
 from ..models import (
@@ -31,15 +31,15 @@ router = APIRouter(tags=["Smart"])
 
 
 @router.get("/api/incidents/{inc_id}/precedents")
-def get_precedents(inc_id: int, _=Depends(viewer)):
+def get_precedents(inc_id: int, user=Depends(viewer)):
     with SessionLocal() as db:
-        return precedents(db, get_incident(db, inc_id))
+        return precedents(db, get_incident(db, inc_id, user))
 
 
 @router.post("/api/incidents/{inc_id}/evidence-viewed")
 def evidence_viewed(inc_id: int, user=Depends(viewer)):
     with SessionLocal() as db:
-        get_incident(db, inc_id)
+        get_incident(db, inc_id, user)
         seen = db.scalar(select(AuditEvent.id).where(AuditEvent.action == "evidence.viewed",
                                                      AuditEvent.actor == user.username, AuditEvent.target == f"INC-{inc_id}"))
     if not seen:
@@ -52,7 +52,7 @@ def decision_trace(inc_id: int, user=Depends(viewer)):
     """Everything that drove this incident's outcome, for audits: inputs, every decision, every check."""
     s = runtime.current()
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         exps = db.scalars(select(Explanation).where(Explanation.incident_id == inc_id).order_by(Explanation.created_at)).all()
         notes = db.scalars(select(Notification).where(Notification.incident_id == inc_id).order_by(Notification.at)).all()
         calls = db.scalars(select(LlmCall).where(LlmCall.incident_id == inc_id).order_by(LlmCall.at)).all()
@@ -82,7 +82,8 @@ def decision_trace(inc_id: int, user=Depends(viewer)):
                                "error": n.error, "latency_ms": n.latency_ms, "at": iso(n.at)} for n in notes],
             "human_actions": [{"at": iso(e.at), "actor": e.actor, "action": e.action, "detail": e.detail} for e in events],
         }
-    audit(user.username, "incident.trace_exported", f"INC-{inc_id}")
+    if getattr(user, "username", None):
+        audit(user.username, "incident.trace_exported", f"INC-{inc_id}")
     return trace
 
 
@@ -117,13 +118,13 @@ def _check(b: CorrBody) -> None:
 
 
 @router.get("/api/correlation-rules")
-def list_corr(_=Depends(viewer)):
+def list_corr(user=Depends(p_viewer)):
     with SessionLocal() as db:
         return [_corr_out(r) for r in db.scalars(select(CorrelationRule).order_by(CorrelationRule.id))]
 
 
 @router.post("/api/correlation-rules/test")
-def test_corr(b: CorrBody, _=Depends(analyst)):
+def test_corr(b: CorrBody, user=Depends(p_analyst)):
     _check(b)
     rule = CorrelationRule(name=b.name, first=b.first.model_dump(), then=b.then.model_dump(), same=b.same,
                            within_minutes=b.within_minutes, band=b.band, created_by="test")
@@ -132,7 +133,7 @@ def test_corr(b: CorrBody, _=Depends(analyst)):
 
 
 @router.post("/api/correlation-rules", status_code=201)
-def add_corr(b: CorrBody, user=Depends(admin)):
+def add_corr(b: CorrBody, user=Depends(p_admin)):
     _check(b)
     with SessionLocal() as db:
         r = CorrelationRule(name=b.name, first=b.first.model_dump(), then=b.then.model_dump(), same=b.same,
@@ -145,7 +146,7 @@ def add_corr(b: CorrBody, user=Depends(admin)):
 
 
 @router.put("/api/correlation-rules/{rid}")
-def edit_corr(rid: int, b: CorrBody, user=Depends(admin)):
+def edit_corr(rid: int, b: CorrBody, user=Depends(p_admin)):
     _check(b)
     with SessionLocal() as db:
         r = db.get(CorrelationRule, rid)
@@ -161,7 +162,7 @@ def edit_corr(rid: int, b: CorrBody, user=Depends(admin)):
 
 
 @router.delete("/api/correlation-rules/{rid}")
-def del_corr(rid: int, user=Depends(admin)):
+def del_corr(rid: int, user=Depends(p_admin)):
     with SessionLocal() as db:
         r = db.get(CorrelationRule, rid)
         if not r:
@@ -173,7 +174,7 @@ def del_corr(rid: int, user=Depends(admin)):
 
 
 @router.get("/api/autoclose/candidates")
-def autoclose_candidates(_=Depends(viewer)):
+def autoclose_candidates(user=Depends(p_viewer)):
     s = runtime.current()
     ac = s.autoclose
     with SessionLocal() as db:
@@ -192,11 +193,11 @@ def autoclose_candidates(_=Depends(viewer)):
 
 
 @router.post("/api/incidents/{inc_id}/reopen-auto")
-def reopen_auto(inc_id: int, user=Depends(analyst)):
+def reopen_auto(inc_id: int, user=Depends(p_analyst)):
     """Reviewer disagrees with an auto-close: reopen it and revoke auto-close for its rule."""
     s = runtime.current()
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         if i.status != "auto_closed":
             raise SieveError(BAD_REQUEST, "This incident was not auto-closed.", status=409)
         i.status, i.resolved_at = "new", None
@@ -211,13 +212,13 @@ def reopen_auto(inc_id: int, user=Depends(analyst)):
 
 
 @router.get("/api/tuning/weights")
-def weights(_=Depends(viewer)):
+def weights(user=Depends(p_viewer)):
     with SessionLocal() as db:
         return suggest_weights(db, runtime.current())
 
 
 @router.post("/api/tuning/weights/apply")
-def apply_weights(user=Depends(admin)):
+def apply_weights(user=Depends(p_admin)):
     s = runtime.current()
     with SessionLocal() as db:
         sug = suggest_weights(db, s)
@@ -237,7 +238,7 @@ class AskBody(BaseModel):
 @router.post("/api/ask")
 async def ask_route(b: AskBody, user=Depends(viewer)):
     from ..llm.ask import ask
-    res = await ask(b.question, runtime.current())
+    res = await ask(b.question, runtime.current(), tenant_id=getattr(user, "tenant_id", None))
     audit(user.username, "ask", b.question[:200])
     return res
 
@@ -246,8 +247,10 @@ async def ask_route(b: AskBody, user=Depends(viewer)):
 def practice_next(user=Depends(viewer)):
     with SessionLocal() as db:
         done = {x for (x,) in db.execute(select(PracticeAttempt.incident_id).where(PracticeAttempt.user_id == user.id))}
-        pool = [i for i in db.scalars(select(Incident).where(Incident.status.in_(("resolved", "false_positive")),
-                                                            Incident.is_selftest.is_(False)).limit(2000))
+        q = select(Incident).where(Incident.status.in_(("resolved", "false_positive")), Incident.is_selftest.is_(False))
+        if getattr(user, "tenant_id", None):
+            q = q.where(Incident.tenant_id == user.tenant_id)
+        pool = [i for i in db.scalars(q.limit(2000))
                 if i.id not in done]
         hard = [i for i in pool if i.band in ("high", "critical") or i.tripwire] or pool
         if not hard:
@@ -269,7 +272,7 @@ def practice_answer(inc_id: int, b: PracticeBody, user=Depends(viewer)):
     if user.id < 0:
         raise SieveError(BAD_REQUEST, "Practice needs a personal account.", status=422)
     with SessionLocal() as db:
-        i = get_incident(db, inc_id)
+        i = get_incident(db, inc_id, user)
         actual = "false_positive" if i.status == "false_positive" else "real"
         target = i.human_band or i.band
         row = PracticeAttempt(user_id=user.id, incident_id=inc_id, verdict=b.verdict, band=b.band,
@@ -290,7 +293,7 @@ class TraineeBody(BaseModel):
 
 
 @router.post("/api/users/{uid}/trainee")
-def set_trainee(uid: int, b: TraineeBody, user=Depends(admin)):
+def set_trainee(uid: int, b: TraineeBody, user=Depends(p_admin)):
     with SessionLocal() as db:
         u = db.get(User, uid)
         if not u:

@@ -15,9 +15,9 @@
 | Model sentences dropped by validation | – | – | – | 66.7% |
 | LLM calls per 1,000 alerts | 0 | 1000 | 0 | 57.1 |
 
-**Sieve no-AI** first notification p50/p95: 11 / 13 ms. Tripwire detection by class: context_manipulation 100%, direct_override 100%, obfuscated 100%, persona_hijack 100%.
+**Sieve no-AI** first notification p50/p95: 9 / 14 ms. Tripwire detection by class: context_manipulation 100%, direct_override 100%, obfuscated 100%, persona_hijack 100%.
 
-**Sieve full** first notification p50/p95: 8 / 12 ms. Tripwire detection by class: context_manipulation 100%, direct_override 100%, obfuscated 100%, persona_hijack 100%.
+**Sieve full** first notification p50/p95: 10 / 15 ms. Tripwire detection by class: context_manipulation 100%, direct_override 100%, obfuscated 100%, persona_hijack 100%.
 
 Notified = the incident reached the notify band (high). Calibration uses score/100 as the confidence that a scenario is a true attack; the score is a priority, not a probability, so a high ECE is expected until weights are tuned on lab data.
 

@@ -50,7 +50,7 @@ async def emit(event: str, inc: Incident, settings: Settings) -> None:
     body = {"event": event, "sent_at": int(time.time()), "incident": payload(inc, settings)}
     raw = json.dumps(body, separators=(",", ":"), default=str).encode()
     for w in settings.webhooks:
-        if not w.enabled or event not in w.events or band_rank(inc.band) < band_rank(w.min_band):
+        if not w.enabled or (event not in w.events and event != "automation") or band_rank(inc.band) < band_rank(w.min_band):
             continue
         ts = str(int(time.time()))
         headers = {"content-type": "application/json", "x-sieve-event": event, "x-sieve-timestamp": ts}

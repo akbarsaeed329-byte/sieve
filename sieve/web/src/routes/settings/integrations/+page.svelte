@@ -80,6 +80,10 @@
     <div class="field"><label for="e5">To (comma-separated)</label><input id="e5" type="text" value={n.email.to.join(', ')} onchange={(e) => (n.email.to = e.currentTarget.value.split(',').map((x) => x.trim()).filter(Boolean))} /></div></div>
   {@render outcome(results.email)}
   <button class="btn small" style="align-self:flex-start" onclick={() => test('email', '/api/health/test/notify/email')}>Send test email</button>
+  <details><summary class="small">Buttons in Telegram and Slack (acknowledge from your phone)</summary>
+    <ol class="small"><li>Telegram: store <code>SIEVE_TELEGRAM_WEBHOOK_SECRET</code>, then call <code>https://api.telegram.org/bot&lt;token&gt;/setWebhook?url={S.s.notify.public_url}/api/integrations/telegram/webhook&amp;secret_token=&lt;secret&gt;</code>.</li>
+      <li>Slack: in your app, turn on Interactivity with request URL <code>{S.s.notify.public_url}/api/integrations/slack/actions</code> and store the signing secret as <code>SIEVE_SLACK_SIGNING_SECRET</code>.</li>
+      <li>Each person links their chat account once: Settings › Security › Link Telegram or Slack.</li></ol></details>
   <h3>Microsoft Teams</h3>
   <div class="grid"><label class="row"><input type="checkbox" bind:checked={teams.enabled} /> Enabled</label><Secret name={teams.webhook_env} label="Workflows / incoming webhook URL" /></div>
   {@render outcome(results.teams)}

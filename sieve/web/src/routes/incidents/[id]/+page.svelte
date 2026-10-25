@@ -1,7 +1,7 @@
 <script>
   import { onMount, tick } from 'svelte';
   import { page } from '$app/state';
-  import { get, post } from '$lib/api.js';
+  import { get, post, put } from '$lib/api.js';
   import { app, canEdit, isAdmin, toast } from '$lib/state.svelte.js';
   import { ago, hhmmss, errText, STATUS, until, plural } from '$lib/util.js';
   import Pill from '$c/Pill.svelte';
@@ -12,10 +12,28 @@
   let id = $derived(page.params.id);
   let users = $state([]), note = $state(''), tagText = $state(''), fpOpen = $state(false), fpReason = $state('');
   let sug = $state(null), makeExc = $state(true), excDays = $state(30), mergeInto = $state('');
-  let prec = $state(null), viewed = false;
+  let prec = $state(null), viewed = false, comp = $state(null), compOpen = $state(false);
+  async function loadComp() { comp = await get(`/api/incidents/${id}/compliance`).catch(() => null); }
+  async function setComp(patch, msg) {
+    try { comp = { ...(await put(`/api/incidents/${id}/compliance`, patch)), dora_criteria_labels: comp?.dora_criteria_labels, enabled: comp?.enabled }; if (msg) toast(msg); }
+    catch (e) { toast(errText(e)); }
+  }
+  const local = (iso) => { if (!iso) return ''; const d = new Date(iso); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
+  function clockText(it) {
+    if (it.state === 'sent') return `sent ${new Date(it.sent_at).toLocaleString()}`;
+    if (it.minutes_left == null) return '';
+    const m = Math.abs(it.minutes_left), t = m < 120 ? `${m} min` : m < 2880 ? `${Math.round(m / 60)} h` : `${Math.round(m / 1440)} d`;
+    return it.minutes_left < 0 ? `${t} overdue` : `${t} left`;
+  }
+  async function download(path, name) {
+    const r = await fetch(path, { credentials: 'same-origin' });
+    if (!r.ok) { toast('Download failed.'); return; }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(await r.blob()); a.download = name; a.click();
+  }
   onMount(async () => {
     users = await get('/api/users/directory').catch(() => []);
     prec = await get(`/api/incidents/${id}/precedents`).catch(() => null);
+    loadComp();
   });
   // Against overtrust: record that the evidence was actually looked at (needed to close High/Critical).
   async function markViewed() { if (viewed) return; viewed = true; await post(`/api/incidents/${id}/evidence-viewed`).catch(() => { viewed = false; }); }
@@ -193,6 +211,9 @@
   <div class="cols">
     <div class="stack-lg" style="flex:3 1 min(520px, 100%);min-width:0">
       <section class="card pad stack" aria-labelledby="sum">
+        {#if aiUsed && i.explained_count && i.alert_count > i.explained_count}
+          <div class="banner info small" role="note">This summary was written when the incident had {i.explained_count} alerts; it now has {i.alert_count}. The facts below the score are always current.
+            {#if canEdit()}<button class="link" onclick={act('explain', undefined, 'Summary refreshed.')}>Refresh now</button>{/if}</div>{/if}
         <div class="row between"><h2 id="sum">What happened</h2>
           <span class="small muted">{aiUsed ? `Written by ${i.explanation.model}, checked against the evidence` : 'Rule-based facts from the evidence'}</span></div>
         <ol class="sum">
@@ -300,11 +321,39 @@
       <section class="card pad stack" aria-labelledby="tl"><h2 id="tl">Timeline</h2>
         <ol class="tl">{#each timeline as e}<li><span class="mono small muted">{hhmmss(e.t)}</span><span>{e.text}</span></li>{/each}</ol></section>
 
+      {#if comp && Object.keys(comp.regimes || {}).length}
+      <section class="card pad stack" aria-labelledby="regh"><div class="row between"><h2 id="regh">Regulatory clocks</h2>
+          <button class="link small" onclick={() => (compOpen = !compOpen)}>{compOpen ? 'Hide details' : 'Assess and record'}</button></div>
+        {#each Object.entries(comp.regimes) as [reg, items]}
+          <div class="stack" style="gap:6px"><strong class="small">{reg.toUpperCase()}</strong>
+            {#each items as it}<div class="clock {it.state}"><span class="grow">{it.name}</span><span class="small">{clockText(it)}</span>
+              {#if canEdit() && it.state !== 'sent' && it.name !== 'Classify the incident (major or not)'}
+                <button class="btn small" onclick={() => setComp({ mark_sent: `${reg}_${{ 'Early warning': 'early', 'Incident notification': 'notification', 'Final report': 'final', 'Initial notification': 'initial', 'Intermediate report': 'intermediate', 'Notify the data protection authority': 'dpa' }[it.name]}_sent` }, 'Recorded as sent.')}>Mark sent</button>{/if}</div>
+              {#if it.hint}<span class="small muted">{it.hint}</span>{/if}{/each}</div>
+        {/each}
+        {#if compOpen && canEdit()}
+          <div class="field"><label for="aw">We became aware at</label><input id="aw" type="datetime-local" value={local(comp.aware_at)} onchange={(e) => setComp({ aware_at: new Date(e.currentTarget.value).toISOString() }, 'Awareness time saved.')} /></div>
+          {#if comp.enabled?.dora}
+            <fieldset class="stack" style="border:1px solid var(--line);border-radius:8px;padding:12px"><legend class="small">DORA classification (RTS 2024/1772)</legend>
+              {#each Object.entries(comp.dora_criteria_labels || {}) as [k, label]}<label class="row small"><input type="checkbox" checked={!!comp.record?.dora_criteria?.[k]}
+                onchange={(e) => setComp({ dora_criteria: { ...(comp.record?.dora_criteria || {}), [k]: e.currentTarget.checked } })} /> {label}</label>{/each}
+              <label class="row small"><input type="checkbox" checked={!!comp.record?.dora_malicious_loss} onchange={(e) => setComp({ dora_malicious_loss: e.currentTarget.checked })} /> Malicious unauthorised access with data loss</label>
+              {#if comp.dora_assessment}<p class="small {comp.dora_assessment.suggest_major ? 'error' : 'muted'}"><strong>{comp.dora_assessment.suggest_major ? 'Likely major' : 'Probably not major'}:</strong> {comp.dora_assessment.reason}. {comp.dora_assessment.note}</p>{/if}
+              {#if !comp.record?.dora_classified_major_at}<button class="btn small danger" style="align-self:flex-start" onclick={() => setComp({ dora_classified_major_at: new Date().toISOString() }, 'Classified as major: the 4-hour clock started.')}>We classify this as major (starts the 4-hour clock)</button>{/if}
+            </fieldset>{/if}
+          {#if comp.enabled?.gdpr}<label class="row small"><input type="checkbox" checked={!!comp.record?.personal_data} onchange={(e) => setComp({ personal_data: e.currentTarget.checked })} /> Personal data was involved (GDPR 72-hour clock)</label>{/if}
+          <p class="small muted">Sieve calculates deadlines and drafts text. Classification and filing are your decisions; every change is recorded.</p>
+        {/if}
+      </section>
+      {/if}
+
       <section class="card pad stack" aria-labelledby="more"><h2 id="more">Share and report</h2>
         <div class="row">
           {#if canEdit()}<button class="btn small" onclick={draft}>Draft NIS2 early warning</button>{/if}
           <button class="btn small" onclick={exportStix}>Export STIX 2.1</button>
           <button class="btn small" onclick={downloadTrace}>Decision trace (audit)</button>
+          <button class="btn small" onclick={() => download(`/api/incidents/${id}/report.md`, `sieve-INC-${id}-report.md`)}>Investigation report</button>
+          {#if canEdit()}<button class="btn small" onclick={() => download(`/api/incidents/${id}/evidence-pack`, `sieve-INC-${id}-evidence.zip`)}>Evidence pack (sealed)</button>{/if}
           {#if app.advanced}<a class="btn small" href="/investigate?incident={i.id}">Entity graph</a>{/if}
         </div>
         {#if nis2}
@@ -343,6 +392,9 @@
   .sla.late { background: var(--crit-bg); color: var(--crit); font-weight: 600; }
   .tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
   .tag button { border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 0 0 4px; }
+  .clock { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); flex-wrap: wrap; }
+  .clock.overdue { background: var(--crit-bg); border-color: var(--crit-bd); color: var(--crit); }
+  .clock.sent { opacity: 0.7; }
   .prec { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
   .notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
   .notes li { border-left: 3px solid var(--line); padding-left: 10px; }

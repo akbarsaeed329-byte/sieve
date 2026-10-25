@@ -268,6 +268,34 @@ class OidcCfg(BaseModel):
     button_label: str = "Sign in with SSO"
 
 
+class ComplianceCfg(BaseModel):
+    """Which reporting regimes apply to this organisation (per tenant they can be overridden later)."""
+    nis2: bool = True
+    dora: bool = False
+    gdpr: bool = True
+
+
+class SilenceCfg(BaseModel):
+    enabled: bool = True
+    min_hours: float = Field(6, ge=0.5)       # never alert sooner than this
+    factor: float = Field(4, ge=1.5)          # ... or 4x the agent's usual gap between alerts, whichever is longer
+    band_critical_asset: BandName = "high"
+    band_other: BandName = "medium"
+
+
+class PilotCfg(BaseModel):
+    minutes_per_alert: float = Field(2.0, ge=0.1, le=60)   # analyst time a raw alert costs (your estimate)
+    raw_notify_level: int = Field(7, ge=0, le=16)           # "before Sieve": every alert at this level or above pages someone
+
+
+class ChatOpsCfg(BaseModel):
+    telegram_buttons: bool = True
+    telegram_webhook_secret_env: str = "SIEVE_TELEGRAM_WEBHOOK_SECRET"
+    slack_buttons: bool = True
+    slack_signing_secret_env: str = "SIEVE_SLACK_SIGNING_SECRET"
+    web_push: bool = True
+
+
 class PluginState(BaseModel):
     enabled: bool = False
     config: dict[str, Any] = Field(default_factory=dict)
@@ -304,6 +332,12 @@ class Settings(BaseModel):
     oidc: OidcCfg = Field(default_factory=OidcCfg)
     require_evidence_review: bool = True   # High/Critical: open the evidence before closing
     resummarise_growth: float = Field(1.5, ge=1.1, le=10)
+    multi_tenant: bool = False
+    compliance: ComplianceCfg = Field(default_factory=ComplianceCfg)
+    silence: SilenceCfg = Field(default_factory=SilenceCfg)
+    pilot: PilotCfg = Field(default_factory=PilotCfg)
+    chatops: ChatOpsCfg = Field(default_factory=ChatOpsCfg)
+    vuln_min_severity: Literal["critical", "high"] = "high"
     tripwire_threshold: float = Field(1.0, gt=0)
     shadow_mode: bool = False           # triage and record, but send no notifications
     allow_active_response: bool = False  # human-approved Wazuh active response; off by default
@@ -342,7 +376,7 @@ EDITABLE_SECTIONS = (
     "tripwire_threshold", "shadow_mode", "allow_active_response", "simple_mode_default",
     "sla", "webhooks", "jira", "thehive", "retention", "require_2fa_for_admins",
     "floors", "routes", "autoclose", "profile", "teams", "pagerduty", "oidc", "require_evidence_review",
-    "resummarise_growth",
+    "resummarise_growth", "multi_tenant", "compliance", "silence", "pilot", "chatops", "vuln_min_severity",
 )
 # allow_active_response can only be turned on from the config file, never from the browser.
 UI_FORBIDDEN_ENABLE = ("allow_active_response",)

@@ -60,15 +60,23 @@ class TelegramNotifier(Notifier):
             raise SieveError(NOTIFY_FAILED, f"Telegram {method} failed with HTTP {r.status_code}.", status=502)
         return r.json()
 
+    def _markup(self, incident: Incident, public_url: str) -> dict:
+        from .. import runtime
+        if not runtime.current().chatops.telegram_buttons:
+            return {}
+        from ..chatops import telegram_markup
+        return {"reply_markup": telegram_markup(incident.id, f"{public_url.rstrip('/')}/incidents/{incident.id}")}
+
     async def send(self, incident: Incident, public_url: str) -> dict:
-        data = await self._post("sendMessage", {"text": _text(model(incident, public_url))})
+        data = await self._post("sendMessage", {"text": _text(model(incident, public_url)), **self._markup(incident, public_url)})
         return {"type": "telegram", "ok": True, "message_id": data["result"]["message_id"]}
 
     async def edit(self, ref: dict, incident: Incident, explanation: dict, public_url: str) -> None:
         if not (ref or {}).get("message_id"):
             return
         await self._post("editMessageText", {"message_id": ref["message_id"],
-                                             "text": _text(model(incident, public_url, explanation))})
+                                             "text": _text(model(incident, public_url, explanation)),
+                                             **self._markup(incident, public_url)})
 
     async def send_text(self, text: str) -> dict:
         data = await self._post("sendMessage", {"text": _escape(text)})

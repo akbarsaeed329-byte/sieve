@@ -121,14 +121,32 @@ async def _intel(srcip: str | None, settings: Settings) -> tuple[bool, dict | No
         return False, None, []
     if _static_intel(srcip, settings):
         return True, {"source": "offline blocklist"}, []
-    from .plugins.enrichers import abuseipdb
-    if not (plugins.is_enabled(settings, "abuseipdb") and abuseipdb.configured(settings)):
+    from .plugins.enrichers import abuseipdb, feeds
+    hits, details, notes = [], {}, []
+    if plugins.is_enabled(settings, "abuseipdb") and abuseipdb.configured(settings):
+        res, error = await plugins.call_safely("abuseipdb", abuseipdb.enrich(srcip, settings), timeout=6)
+        if error:
+            notes.append(f"Threat intel unavailable: {error['message']}")
+        else:
+            min_score = plugins.config(settings, "abuseipdb").get("min_score", settings.intel.abuseipdb_min_score)
+            details["AbuseIPDB"] = res
+            if res["abuse_score"] >= min_score:
+                hits.append("AbuseIPDB")
+    for pid, fn in feeds.LOOKUPS.items():
+        if plugins.is_enabled(settings, pid) and feeds.configured(settings, pid):
+            res, error = await plugins.call_safely(pid, fn(srcip, settings), timeout=6)
+            if error:
+                notes.append(f"{plugins.REGISTRY[pid].name} unavailable: {error['message']}")
+            else:
+                details[res["source"]] = res
+                if res.get("hit"):
+                    hits.append(res["source"])
+    if not details and not notes:
         return False, None, []
-    res, error = await plugins.call_safely("abuseipdb", abuseipdb.enrich(srcip, settings), timeout=6)
-    if error:
-        return False, None, [f"Threat intel unavailable: {error['message']}"]
-    min_score = plugins.config(settings, "abuseipdb").get("min_score", settings.intel.abuseipdb_min_score)
-    return res["abuse_score"] >= min_score, {"source": "AbuseIPDB", **res}, []
+    info = {"source": ", ".join(hits) if hits else "none matched", "sources": details}
+    if "AbuseIPDB" in details:
+        info.update({k: v for k, v in details["AbuseIPDB"].items() if k in ("abuse_score", "country", "isp", "cached")})
+    return bool(hits), info, notes
 
 
 def _continues_open_incident(db, na: NormAlert) -> bool:
@@ -149,18 +167,22 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
                 not bypass_filter and db.scalar(select(Suppression.id).where(Suppression.wazuh_id == na.wazuh_id))):
             Stats.duplicates += 1
             return Outcome("duplicate")
+        from .tenancy import resolve as resolve_tenant
+        tenant_id = resolve_tenant(db, na.agent_name)
         tw = scan(na.untrusted, settings.tripwire_threshold)
         reason = None if bypass_filter else suppression_reason(na, settings, tw.triggered)
         if reason and reason.startswith("below min_level") and _continues_open_incident(db, na):
             reason = None
         if not reason and not bypass_filter and not tw.triggered:
-            exc = matching_exception(db, na)
+            exc = matching_exception(db, na, tenant_id=tenant_id)
             if exc is not None:
                 exc.hits = (exc.hits or 0) + 1
                 reason = f"approved exception #{exc.id}: {exc.reason}"[:300]
         if reason:
             db.add(Suppression(wazuh_id=na.wazuh_id, rule_id=na.rule_id, level=na.level, agent_name=na.agent_name,
-                               description=na.description, reason=reason, raw=payload))
+                               description=na.description, reason=reason, raw=payload, tenant_id=tenant_id))
+            from .assets import touch
+            touch(db, na)
             db.commit()
             Stats.suppressed += 1
             return Outcome("suppressed")
@@ -169,12 +191,17 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
 
     with SessionLocal() as db:
         novelty = _check_novelty(na, db)
-        inc = find_or_create_incident(na, db, settings, tw.triggered, tw.hits)
+        from .assets import touch, vuln_match
+        touch(db, na)
+        inc = find_or_create_incident(na, db, settings, tw.triggered, tw.hits, tenant_id=tenant_id)
+        if inc.aware_at is None:
+            inc.aware_at = inc.opened_at
         is_new = inc.alert_count == 1
         alert = Alert(wazuh_id=na.wazuh_id, rule_id=na.rule_id, level=na.level, description=na.description,
                       agent_name=na.agent_name, agent_id=na.agent_id, srcip=na.srcip, user=na.user, groups=na.groups,
                       mitre_ids=na.mitre_ids, mitre_tactics=na.mitre_tactics, timestamp=na.timestamp,
-                      received_at=received_at, untrusted=na.untrusted, full_log=na.full_log, raw=payload, incident=inc)
+                      received_at=received_at, untrusted=na.untrusted, full_log=na.full_log, raw=payload, incident=inc,
+                      tenant_id=tenant_id)
         db.add(alert)
         db.flush()
         new_tripwire = False
@@ -199,8 +226,13 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
             rule.hits = (rule.hits or 0) + 1
             if rule.name not in [c["name"] for c in inc.correlations or []]:
                 inc.correlations = [*(inc.correlations or []), {"id": rule.id, "name": rule.name, "band": rule.band}]
+        has_vuln, vinfo = vuln_match(db, inc.agent_name, settings.vuln_min_severity)
+        if has_vuln:
+            note = (f"{inc.agent_name} has {vinfo['critical']} critical and {vinfo['high']} high open vulnerabilities"
+                    + (f" ({', '.join(vinfo['cves'][:3])})" if vinfo["cves"] else ""))
+            inc.context_notes = sorted({n for n in inc.context_notes or [] if " open vulnerabilities" not in n} | {note})
         score, band, breakdown, overrides = compute_score(
-            inc, settings, inc.novelty, False, bool(inc.intel), [a.groups for a in alerts],
+            inc, settings, inc.novelty, has_vuln, bool(inc.intel), [a.groups for a in alerts],
             sequence=[(a.groups, a.srcip) for a in alerts], entity_tactics=host_tactics,
             extra_overrides=[(c["name"], c["band"]) for c in inc.correlations or []])
         inc.score, inc.band, inc.breakdown, inc.overrides = score, band, breakdown, overrides
@@ -212,7 +244,7 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
             inc.title = (na.description.strip().rstrip(".") or f"Rule {na.rule_id}")[:300]
         inc.playbook = playbooks.choose({g for a in alerts for g in a.groups}, set(inc.techniques))
         inc.is_selftest = inc.is_selftest or selftest
-        mw = active_maintenance(db, inc.agent_name, na.timestamp)
+        mw = active_maintenance(db, inc.agent_name, na.timestamp, tenant_id)
         inc.maintenance = f"{mw.reason} (window #{mw.id}, approved by {mw.created_by})"[:300] if mw else inc.maintenance
         set_sla(inc, settings)
         # A setup self-test must always reach the channels: it exists to prove they work.
@@ -238,6 +270,9 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
         Stats.alerts += 1
 
     out = Outcome("grouped", inc_id, band, notify)
+    rose = bool(prev_band) and band_rank(band) > band_rank(prev_band)
+    triggers = (["incident.created"] if is_new else []) + (["incident.band_raised"] if rose else []) + \
+        (["incident.tripwire"] if new_tripwire else [])
     if notify:
         with SessionLocal() as db:
             inc = db.get(Incident, inc_id)
@@ -248,7 +283,17 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
             inc.notify_ref = {**(inc.notify_ref or {}), **refs}
             db.commit()
             await emit("incident.notified", inc, settings)
+            if band in ("critical", "high") and settings.chatops.web_push:
+                from .chatops import on_call_now, push_users
+                with SessionLocal() as db2:
+                    who = on_call_now(db2, inc.tenant_id)
+                if who:
+                    _spawn(push_users(who, inc, settings, "new incident"))
 
+    if triggers:
+        from . import automation
+        for trig in triggers:
+            _spawn(automation.run(trig, inc_id, settings))
     gate = settings.llm.enabled and band_rank(band) >= band_rank(settings.llm.min_band)
     band_rose = prev_band is None or band_rank(band) > band_rank(prev_band)
     with SessionLocal() as db:
@@ -372,8 +417,20 @@ def _due(name: str, every_s: float) -> bool:
 
 
 async def _housekeeping() -> None:
-    from . import housekeeping
+    from . import assets, housekeeping, tenancy
     s = runtime.current()
+    if s.multi_tenant and s.wazuh.api_url and _due("agents", 600):
+        try:
+            await tenancy.refresh_agent_groups(s)
+        except Exception:  # noqa: BLE001
+            log.warning("agent group refresh failed")
+    if s.wazuh.indexer_url and _due("vulns", 3600):
+        try:
+            await assets.pull_vulnerabilities(s)
+        except Exception:  # noqa: BLE001
+            log.warning("vulnerability pull failed")
+    if s.silence.enabled and _due("silence", 600):
+        await housekeeping.flag_silent_agents()
     if s.wazuh.pull_enabled and _due("pull", s.wazuh.pull_interval_s):
         await housekeeping.pull_from_indexer()
     if _due("escalate", 60):

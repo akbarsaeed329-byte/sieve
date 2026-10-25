@@ -6,7 +6,7 @@
   let rules = $state([]), test = $state(null);
   const blank = () => ({ name: '', f_rules: '', f_groups: '', f_tech: '', f_min: 1, t_rules: '', t_groups: '', t_tech: '', same: ['srcip'], within_minutes: 10, band: 'high' });
   let r = $state(blank());
-  const load = async () => (rules = await get('/api/correlation-rules'));
+  const load = async () => { try { rules = await get('/api/correlation-rules'); } catch { /* access denied or offline: keep the page usable */ } };
   onMount(load);
   const L = (s) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
   const body = () => ({ name: r.name, first: { rule_ids: L(r.f_rules), groups: L(r.f_groups), techniques: L(r.f_tech), min_count: Number(r.f_min) },

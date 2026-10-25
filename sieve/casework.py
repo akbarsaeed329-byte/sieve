@@ -25,10 +25,12 @@ def set_sla(inc: Incident, settings: Settings) -> None:
         inc.sla_due = due
 
 
-def matching_exception(db, na, now=None) -> AlertException | None:
+def matching_exception(db, na, now=None, tenant_id: int | None = None) -> AlertException | None:
     now = now or utcnow()
     rows = db.scalars(select(AlertException).where(AlertException.active.is_(True))).all()
     for x in rows:
+        if x.tenant_id is not None and x.tenant_id != tenant_id:
+            continue
         if x.expires_at and aware(x.expires_at) < now:
             continue
         checks = [(x.rule_id, na.rule_id), (x.agent_name, na.agent_name), (x.srcip, na.srcip), (x.user, na.user)]
@@ -39,10 +41,11 @@ def matching_exception(db, na, now=None) -> AlertException | None:
     return None
 
 
-def active_maintenance(db, agent_name: str | None, at) -> MaintenanceWindow | None:
+def active_maintenance(db, agent_name: str | None, at, tenant_id: int | None = None) -> MaintenanceWindow | None:
     rows = db.scalars(select(MaintenanceWindow).where(MaintenanceWindow.starts_at <= at,
                                                       MaintenanceWindow.ends_at >= at)).all()
-    return next((m for m in rows if m.agent_name in ("*", agent_name)), None)
+    return next((m for m in rows if m.agent_name in ("*", agent_name)
+                 and (m.tenant_id is None or m.tenant_id == tenant_id)), None)
 
 
 def suggest_exception(inc: Incident) -> dict:

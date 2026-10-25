@@ -8,6 +8,21 @@
   let oidc = $state({ ...(S.s?.oidc || {}) }), evrev = $state(S.s?.require_evidence_review ?? true);
   const L = (s) => s.split(/[\s,]+/).map((x) => x.trim()).filter(Boolean);
   import Secret from '$c/Secret.svelte';
+  let link = $state(null), pushState = $state('');
+  async function makeLink() { try { link = await post('/api/chatops/link-code'); } catch (e) { toast(errText(e)); } }
+  const b64 = (s) => { const p = '='.repeat((4 - (s.length % 4)) % 4); const r = atob((s + p).replace(/-/g, '+').replace(/_/g, '/')); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
+  async function enablePush() {
+    try {
+      if (!('serviceWorker' in navigator) || !('PushManager' in window)) { pushState = 'This browser does not support push notifications.'; return; }
+      if ((await Notification.requestPermission()) !== 'granted') { pushState = 'Notifications were not allowed.'; return; }
+      const reg = await navigator.serviceWorker.register('/sw.js'); await navigator.serviceWorker.ready;
+      const { public_key } = await get('/api/push/vapid');
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64(public_key) });
+      const j = sub.toJSON(); await post('/api/push/subscribe', { endpoint: j.endpoint, keys: j.keys });
+      await post('/api/push/test'); pushState = 'Push is on for this device. A test notification was sent.';
+    } catch (e) { pushState = errText(e); }
+  }
+  let comp = $state({ ...(S.s?.compliance || {}) });
   async function start() { try { setup = await post('/api/auth/2fa/setup'); } catch (e) { toast(errText(e)); } }
   async function enable(e) { e.preventDefault(); try { await post('/api/auth/2fa/enable', { code }); toast('Two-factor sign-in is on.'); setup = null; code = ''; app.me = await get('/api/auth/me'); } catch (err) { toast(errText(err)); } }
   async function disable(e) { e.preventDefault(); try { await post('/api/auth/2fa/disable', { code, password: pw }); toast('Two-factor sign-in is off.'); code = pw = ''; app.me = await get('/api/auth/me'); } catch (err) { toast(errText(err)); } }
@@ -28,6 +43,12 @@
   {:else}<p class="muted">Protect your account with a code from your phone in addition to your password.</p>
     <button class="btn primary" style="align-self:flex-start" onclick={start}>Set up two-factor sign-in</button>{/if}
 </section>
+<section class="card pad stack" aria-labelledby="ph"><h2 id="ph">Your phone</h2>
+  <p class="muted small">Acknowledge or take incidents straight from Telegram or Slack, and get push notifications from the installed Sieve app (open this page on your phone and use "Add to home screen").</p>
+  <div class="row"><button class="btn" onclick={makeLink}>Link Telegram or Slack</button><button class="btn" onclick={enablePush}>Enable push on this device</button></div>
+  {#if link}<div class="banner info stack" role="status"><strong>Your one-time code: <code>{link.code}</code></strong><span>{link.telegram}</span><span class="small">{link.slack}</span></div>{/if}
+  {#if pushState}<p class="small">{pushState}</p>{/if}
+</section>
 {#if app.me?.role === 'admin'}
 <section class="card pad stack" aria-labelledby="pol"><h2 id="pol">Policy</h2>
   <label class="row"><input type="checkbox" bind:checked={req} /> Require two-factor sign-in for all admins</label>
@@ -39,7 +60,10 @@
   <div class="grid">{#each ['critical', 'high', 'medium', 'low'] as b}<div class="field"><label for="s-{b}">{b}</label><input id="s-{b}" type="number" min="1" bind:value={sla[b]} /></div>{/each}
     <label class="row"><input type="checkbox" bind:checked={sla.escalate} /> Send one escalation message when a high or critical incident passes its SLA unacknowledged</label></div>
   <label class="row"><input type="checkbox" bind:checked={evrev} /> Require opening the evidence before closing high and critical incidents</label>
-  <button class="btn primary" style="align-self:flex-start" onclick={() => save({ require_2fa_for_admins: req, retention: ret, sla, require_evidence_review: evrev }, 'Security policy saved.')}>Save policy</button>
+  <fieldset class="row" style="border:none;padding:0"><legend class="small muted">Reporting obligations that apply to us</legend>
+    <label class="row small"><input type="checkbox" bind:checked={comp.nis2} /> NIS2</label><label class="row small"><input type="checkbox" bind:checked={comp.dora} /> DORA (financial sector)</label>
+    <label class="row small"><input type="checkbox" bind:checked={comp.gdpr} /> GDPR personal-data breaches</label></fieldset>
+  <button class="btn primary" style="align-self:flex-start" onclick={() => save({ require_2fa_for_admins: req, retention: ret, sla, require_evidence_review: evrev, compliance: comp }, 'Security policy saved.')}>Save policy</button>
   <p class="small muted">Backups: run <code>sieve backup /path/sieve-backup.db</code> (safe while running) and keep <code>data/.secret_key</code> with it.</p>
 </section>
 {/if}

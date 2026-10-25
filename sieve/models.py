@@ -78,6 +78,12 @@ class Incident(Base):
     correlations: Mapped[list] = mapped_column(JSON, default=list)
     ticket_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     team: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    vuln: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    aware_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    classified_major_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    regulatory: Mapped[dict | None] = mapped_column(JSON, nullable=True)   # {regimes, dora_criteria, personal_data, sent:{...}}
+    compliance: Mapped[dict | None] = mapped_column(JSON, nullable=True)   # regimes, timestamps, DORA criteria
     alerts: Mapped[list[Alert]] = relationship(back_populates="incident", order_by="Alert.timestamp")
     explanations: Mapped[list[Explanation]] = relationship(back_populates="incident",
                                                           order_by="Explanation.created_at")
@@ -103,6 +109,7 @@ class Alert(Base):
     full_log: Mapped[str] = mapped_column(Text, default="")
     raw: Mapped[dict] = mapped_column(JSON)
     incident_id: Mapped[int | None] = mapped_column(ForeignKey("incidents.id"), nullable=True, index=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     incident: Mapped[Incident | None] = relationship(back_populates="alerts")
 
 
@@ -123,6 +130,7 @@ class Suppression(Base):
     reviewed_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
     reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     restored_queue_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
 
 class Explanation(Base):
@@ -170,6 +178,10 @@ class User(Base):
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
     trainee: Mapped[bool] = mapped_column(Boolean, default=False)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)   # None = provider staff (all tenants)
+    telegram_user_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    slack_user_id: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    link_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     sso_subject: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
@@ -184,6 +196,7 @@ class Invite(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     used_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class ChecklistTick(Base):
@@ -297,6 +310,7 @@ class AlertException(Base):
     from_incident: Mapped[int | None] = mapped_column(Integer, nullable=True)
     hits: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class MaintenanceWindow(Base):
@@ -309,6 +323,7 @@ class MaintenanceWindow(Base):
     reason: Mapped[str] = mapped_column(String(300))
     created_by: Mapped[str] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class ApiToken(Base):
@@ -324,6 +339,11 @@ class ApiToken(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+    scopes: Mapped[list | None] = mapped_column(JSON, nullable=True)   # None = all endpoints for the role
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    rate_per_min: Mapped[int] = mapped_column(Integer, default=120)
+    calls: Mapped[int] = mapped_column(Integer, default=0)
 
 
 class CorrelationRule(Base):
@@ -340,6 +360,7 @@ class CorrelationRule(Base):
     created_by: Mapped[str] = mapped_column(String(80))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     hits: Mapped[int] = mapped_column(Integer, default=0)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class PracticeAttempt(Base):
@@ -353,6 +374,73 @@ class PracticeAttempt(Base):
     correct_verdict: Mapped[bool] = mapped_column(Boolean)
     correct_band: Mapped[bool] = mapped_column(Boolean)
     at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Tenant(Base):
+    """A customer of a managed security provider. Agents map to tenants through Wazuh agent groups."""
+    __tablename__ = "tenants"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True)
+    slug: Mapped[str] = mapped_column(String(60), unique=True)
+    wazuh_groups: Mapped[list] = mapped_column(JSON, default=list)
+    host_patterns: Mapped[list] = mapped_column(JSON, default=list)     # fallback: glob on agent name
+    brand: Mapped[dict] = mapped_column(JSON, default=dict)             # {"color": "#0B6E69", "title": "..."}
+    contacts: Mapped[list] = mapped_column(JSON, default=list)          # [{"name", "email", "phone", "role"}]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class AgentState(Base):
+    """Per-agent memory: tenant, Wazuh groups, last alert seen (silent-source detection), vulnerabilities."""
+    __tablename__ = "agents"
+    agent_name: Mapped[str] = mapped_column(String(200), primary_key=True)
+    agent_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    groups: Mapped[list] = mapped_column(JSON, default=list)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    last_alert_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    alerts_7d: Mapped[int] = mapped_column(Integer, default=0)
+    silent_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    vulns: Mapped[dict] = mapped_column(JSON, default=dict)             # {"critical": n, "high": n, "cves": [...]}
+    vulns_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str | None] = mapped_column(String(24), nullable=True)   # Wazuh agent status if known
+
+
+class AutomationRule(Base):
+    """When <trigger> and <conditions>, do <actions>. Actions never include response on hosts."""
+    __tablename__ = "automation_rules"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    # incident.created | incident.band_raised | incident.tripwire | incident.overdue
+    trigger: Mapped[str] = mapped_column(String(32))
+    conditions: Mapped[dict] = mapped_column(JSON, default=dict)
+    actions: Mapped[list] = mapped_column(JSON, default=list)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    runs: Mapped[int] = mapped_column(Integer, default=0)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class OnCall(Base):
+    """A rotation: who is on call now, used for escalations and phone pushes."""
+    __tablename__ = "oncall"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    members: Mapped[list] = mapped_column(JSON, default=list)          # usernames in rotation order
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    shift_hours: Mapped[int] = mapped_column(Integer, default=168)
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class PushSubscription(Base):
+    __tablename__ = "push_subscriptions"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    endpoint: Mapped[str] = mapped_column(Text, unique=True)
+    keys: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AuditEvent(Base):

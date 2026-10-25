@@ -7,7 +7,8 @@
   let { children } = $props();
   onMount(loadSettings);
   let tabs = $derived(app.me?.role === 'admin' ? [['integrations', 'Integrations'], ['models', 'Models'], ['profile', 'Profile & floors'], ['routing', 'Routing'],
-    ['correlation', 'Correlation'], ['exceptions', 'Exceptions & maintenance'],
+    ['correlation', 'Correlation'], ['workflows', 'Workflows'], ['oncall', 'On-call'], ['exceptions', 'Exceptions & maintenance'],
+    ['ai', 'AI & tokens'],
     ['automation', 'Automation'], ['plugins', 'Plugins'], ...(app.advanced ? [['rules', 'Rules']] : []), ['users', 'Users'],
     ['security', 'Security'], ['audit', 'Audit log']] : [['security', 'Security']]);
 </script>

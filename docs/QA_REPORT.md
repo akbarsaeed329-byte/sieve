@@ -1,6 +1,6 @@
-# QA report, v0.3.0 (2026-10-18)
+# QA report, v0.4.0 (2026-10-18)
 
-Method: 240 automated tests (unit, API, role matrix, pipeline, injection), the PoisonedLogs benchmark, and a
+Method: 266 automated tests (unit, API, role matrix, pipeline, injection), the PoisonedLogs benchmark, and a
 scripted browser pass over every page as admin, analyst and viewer at 1366 px and 390 px, with alerts carrying
 XSS payloads (`<script>`, `onerror`, `onload`) in every field that reaches the screen. The browser pass checks
 for executed script, JavaScript dialogs, console errors, horizontal overflow, open redirect, path traversal,
@@ -31,6 +31,9 @@ security headers and cookie flags. Final run: **no issues**.
 | 20 | Low | tutorial review | "(s)" plurals in reports, overview banner and validation note | proper singular and plural wording |
 | 21 | Medium | v0.3 tests | Weight-tuning search stuck when two weights had to move together | separation-aware search; test |
 | 22 | Low | load test | Ingest committed each alert separately (~1,600/s) | batched transaction for lists and pull mode |
+| 23 | High | v0.4 build | Duplicate tables/fields/settings and calls to missing functions left by an interrupted attempt | reconciled; AST duplicate check |
+| 24 | High | v0.4 tests | Compliance column missing on incidents | added; regression test |
+| 25 | Medium | browser QA (customer user) | Provider-only pages shown to customers; 5 pages crashed on refused requests | nav filtered; loads guarded |
 | 16 | Low | tests | Login rate limit (10/min/IP) fired before the per-account lockout and would hit offices behind one NAT | 20/min/IP; lockout stays at 10 failures/account |
 
 ## Known limitations (not bugs)

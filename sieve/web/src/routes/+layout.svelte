@@ -46,6 +46,8 @@
 
   // Load health as soon as someone is signed in (not only on the 30 s timer).
   $effect(() => { if (app.me) refreshHealth(); });
+  $effect(() => { if (app.me && !app.me.tenant_id) get('/api/tenants').then((t) => (app.tenants = t)).catch(() => {}); });
+  onMount(() => { if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {}); });
   $effect(() => { if (app.me?.must_enroll_2fa && !page.url.pathname.startsWith('/settings/security')) goto('/settings/security'); });
 
   async function logout() { await post('/api/auth/logout').catch(() => {}); app.me = null; goto('/login'); }
@@ -54,11 +56,14 @@
     { href: '/', label: 'Overview' },
     { href: '/incidents', label: 'Incidents' },
     { href: '/ask', label: 'Ask Sieve' },
-    ...(app.advanced ? [{ href: '/investigate', label: 'Investigate' }, { href: '/coverage', label: 'Coverage' },
+    ...(app.advanced && !app.me?.tenant_id ? [{ href: '/investigate', label: 'Investigate' }, { href: '/coverage', label: 'Coverage' },
       { href: '/reports', label: 'Metrics' }, { href: '/tuning', label: 'Tuning' }] : []),
+    ...(app.advanced && app.me?.tenant_id ? [{ href: '/investigate', label: 'Investigate' }] : []),
     ...(app.advanced || app.me?.trainee ? [{ href: '/practice', label: 'Practice' }] : []),
     { href: '/hidden', label: 'Hidden alerts' },
     { href: '/summary', label: 'Reports' },
+    ...(app.tenants?.length || app.me?.tenant_id ? [{ href: '/customers', label: app.me?.tenant_id ? 'Our account' : 'Customers' }] : []),
+    ...(app.advanced && !app.me?.tenant_id ? [{ href: '/pilot', label: 'Pilot' }] : []),
     { href: '/health', label: 'Health' },
     ...(app.me?.role === 'admin' ? [{ href: '/settings/integrations', label: 'Settings' }] : [])
   ]);
@@ -80,6 +85,9 @@
       <div class="links">
         {#each nav as n}<a href={n.href} aria-current={active(n.href) ? 'page' : undefined}>{n.label}</a>{/each}
       </div>
+      {#if app.tenants?.length && !app.me?.tenant_id}
+        <div class="field"><label for="tsw" class="small">Customer</label>
+          <select id="tsw" bind:value={app.tenant}><option value="">All customers</option>{#each app.tenants as t}<option value={t.id}>{t.name}</option>{/each}</select></div>{/if}
       <a class="health" href="/health" aria-label="System health, open details">
         <span class="small" style="font-weight:600;color:var(--muted)">System health</span>
         {#each topComponents as c}
