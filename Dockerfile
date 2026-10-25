@@ -1,5 +1,5 @@
 # ---- web build (SvelteKit static) ----
-FROM node:22-slim AS web
+FROM node:26-slim AS web
 WORKDIR /web
 COPY sieve/web/package.json sieve/web/package-lock.json ./
 RUN npm ci --no-audit --no-fund
