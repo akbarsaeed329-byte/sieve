@@ -12,6 +12,7 @@ From enterprise SIEM buyer checklists (UEBA, risk-based alerting, high availabil
 - Custom dashboards: per-user tile layout from a widget library, tenant-aware.
 ### Fixed
 - `noisy_rules` selected a non-grouped column (rejected by PostgreSQL; SQLite allowed it).
+- Creating or editing a customer now back-fills existing alerts and incidents, not only future ones.
 
 ## 0.4.0 (2026-10-18)
 ### Added

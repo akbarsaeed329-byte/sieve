@@ -398,3 +398,14 @@ def test_detection_draft_and_ai_permissions(client, settings):
     assert c.get("/api/coverage/draft/DROP TABLE").status_code == 422
     perm = c.get("/api/ai/permissions").json()
     assert perm["model_powers"].startswith("None") and "passwords and API keys" in perm["never_sent"]
+
+
+
+def test_creating_a_tenant_backfills_history(client, settings):
+    run(feed([alert(i, host="later-web") for i in range(4)], settings))     # history before the customer exists
+    c = signed_in(client)
+    t = c.post("/api/tenants", json={"name": "Later Co", "host_patterns": ["later-*"]}).json()
+    with SessionLocal() as db:
+        from sieve.models import Alert
+        assert {a.tenant_id for a in db.scalars(select(Alert).where(Alert.agent_name == "later-web"))} == {t["id"]}
+        assert db.scalars(select(Incident).where(Incident.agent_name == "later-web")).first().tenant_id == t["id"]

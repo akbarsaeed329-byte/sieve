@@ -119,3 +119,23 @@ def usage(db, tenant_id: int, days: int = 30) -> dict:
         "ai_calls": db.scalar(select(func.count(LlmCall.id)).where(LlmCall.incident_id.in_(inc_ids), LlmCall.at >= since)) or 0,
         "agents": db.scalar(select(func.count()).select_from(AgentState).where(AgentState.tenant_id == tenant_id)) or 0,
     }
+
+
+def retag(db) -> int:
+    """Re-derive tenants for every known agent and back-fill existing alerts, suppressions and incidents.
+    Called when a tenant is created or its mapping changes, so history is not left untagged."""
+    from sqlalchemy import update
+
+    from .models import Suppression
+    names = {a for (a,) in db.execute(select(Alert.agent_name).distinct()) if a}
+    names |= {a for (a,) in db.execute(select(Incident.agent_name).distinct()) if a}
+    changed = 0
+    for name in names:
+        st = db.get(AgentState, name)
+        if st is None:
+            st = AgentState(agent_name=name, groups=[], vulns={})
+            db.add(st)
+        st.tenant_id = resolve(db, name)
+        for model in (Alert, Incident, Suppression):
+            changed += db.execute(update(model).where(model.agent_name == name).values(tenant_id=st.tenant_id)).rowcount or 0
+    return changed

@@ -86,10 +86,9 @@ def add_tenant(b: TenantBody, user=Depends(p_admin)):
         )
         db.add(t)
         db.flush()
-        from ..tenancy import resolve
+        from ..tenancy import retag
 
-        for st in db.scalars(select(AgentState)):
-            st.tenant_id = resolve(db, st.agent_name)
+        retag(db)   # back-fill history, not only future alerts
         db.commit()
         out = _t_out(t)
     audit(user.username, "tenant.created", out["slug"], groups=b.wazuh_groups, patterns=b.host_patterns)
@@ -111,10 +110,9 @@ def edit_tenant(tid: int, b: TenantBody, user=Depends(p_admin)):
         )
         t.brand = {k: str(v)[:120] for k, v in (b.brand or {}).items() if k in ("color", "title", "footer")}
         db.flush()
-        from ..tenancy import resolve
+        from ..tenancy import retag
 
-        for st in db.scalars(select(AgentState)):
-            st.tenant_id = resolve(db, st.agent_name)
+        retag(db)   # back-fill history, not only future alerts
         db.commit()
         out = _t_out(t)
     audit(user.username, "tenant.updated", out["slug"])

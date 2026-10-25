@@ -1,6 +1,6 @@
 # QA report, v0.5.0 (2026-10-18)
 
-Method: 272 automated tests, run on both SQLite and PostgreSQL 16, plus a 2-worker concurrency test, (unit, API, role matrix, pipeline, injection), the PoisonedLogs benchmark, and a
+Method: 273 automated tests, run on both SQLite and PostgreSQL 16, plus a 2-worker concurrency test, (unit, API, role matrix, pipeline, injection), the PoisonedLogs benchmark, and a
 scripted browser pass over every page as admin, analyst and viewer at 1366 px and 390 px, with alerts carrying
 XSS payloads (`<script>`, `onerror`, `onload`) in every field that reaches the screen. The browser pass checks
 for executed script, JavaScript dialogs, console errors, horizontal overflow, open redirect, path traversal,
@@ -36,6 +36,7 @@ security headers and cookie flags. Final run: **no issues**.
 | 25 | Medium | browser QA (customer user) | Provider-only pages shown to customers; 5 pages crashed on refused requests | nav filtered; loads guarded |
 | 26 | High | PostgreSQL run | `noisy_rules` selected a column not in GROUP BY (PostgreSQL error) | aggregate; full suite now runs on PostgreSQL |
 | 27 | Medium | v0.5 tests | Risk alerts duplicated loud attacks already being handled | require spread across incidents and at least one unseen |
+| 28 | High | marketing recording | Creating a customer mapped future alerts only; existing history stayed untagged | `retag()` back-fills alerts, suppressions and incidents; test |
 | 16 | Low | tests | Login rate limit (10/min/IP) fired before the per-account lockout and would hit offices behind one NAT | 20/min/IP; lockout stays at 10 failures/account |
 
 ## Known limitations (not bugs)
