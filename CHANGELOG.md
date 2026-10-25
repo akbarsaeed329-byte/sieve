@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.0 (2026-10-18)
+Built from what users of Wazuh, the Wazuh Alert Manager plugin, AI SOC tools and SOAR platforms ask for.
+### Added
+- Severity floors: Wazuh level 12+, account creation on critical assets, credential dumping (High); ransomware-like impact (Critical).
+- Correlation rules ("A then B, same entity, within N minutes") with a 30-day backtest before saving.
+- Precedent panel: how similar incidents were closed before, by whom, with their notes.
+- Team routing by host pattern or asset tag, with per-team Telegram/Slack/email and auto-assignment.
+- Graduated auto-close: per rule, only after 30+ verdicts at 95%+ agreement, never for tripwire/override/correlation; reopening revokes it.
+- Weight-tuning suggestions from your verdicts (never lose a real notification; admin applies).
+- Re-summarise incidents that grow by 50%; company profile (AI context, off-hours facts).
+- Verify-before-close for High/Critical; decision-trace export for audits.
+- Ask Sieve (deterministic answers, guarded AI phrasing) and a read-only MCP server (`sieve mcp`).
+- Training mode (blind practice on closed incidents).
+- Microsoft Teams, PagerDuty (trigger and auto-resolve), Jira two-way sync, Wazuh dashboard deep links.
+- OIDC single sign-on (Entra ID, Google, Okta, Keycloak) with PKCE, nonce and JWKS verification; group-to-role mapping.
+- Batched ingest; load test (~190 alerts/s per worker on SQLite); signed releases with SBOM and provenance.
+### Fixed
+- Weight-search could get stuck when the fix needed two coordinated changes (found by its own test).
+
 ## 0.2.0 (2026-10-18)
 Driven by market research and user feedback (docs/COMPARISON.md) and a full QA pass (docs/QA_REPORT.md).
 ### Added

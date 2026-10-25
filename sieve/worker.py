@@ -36,6 +36,7 @@ from .pipeline.group import OPEN_STATUSES, actor, find_or_create_incident, key_a
 from .pipeline.normalise import NormAlert, normalise
 from .pipeline.score import SUCCESS_GROUPS, band_rank, compute_score
 from .pipeline.tripwire import scan
+from .smart import autoclose_ok, correlation_hits, routes_for
 
 log = logging.getLogger("sieve.worker")
 
@@ -193,12 +194,20 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
         inc.partial_context = bool(inc.partial_context or notes)
         inc.context_notes = sorted(set(inc.context_notes or []) | set(notes))
         prev_band = inc.band if not is_new else None
+        hits = correlation_hits(db, alert)
+        for rule, _n in hits:
+            rule.hits = (rule.hits or 0) + 1
+            if rule.name not in [c["name"] for c in inc.correlations or []]:
+                inc.correlations = [*(inc.correlations or []), {"id": rule.id, "name": rule.name, "band": rule.band}]
         score, band, breakdown, overrides = compute_score(
             inc, settings, inc.novelty, False, bool(inc.intel), [a.groups for a in alerts],
-            sequence=[(a.groups, a.srcip) for a in alerts], entity_tactics=host_tactics)
+            sequence=[(a.groups, a.srcip) for a in alerts], entity_tactics=host_tactics,
+            extra_overrides=[(c["name"], c["band"]) for c in inc.correlations or []])
         inc.score, inc.band, inc.breakdown, inc.overrides = score, band, breakdown, overrides
         if overrides and any("brute force" in o for o in overrides):
             inc.title = "Brute force, then a successful login"
+        elif inc.correlations and is_new is False and not inc.title.startswith("Correlated:"):
+            inc.title = f"Correlated: {inc.correlations[0]['name']}"[:300]
         elif is_new:
             inc.title = (na.description.strip().rstrip(".") or f"Rule {na.rule_id}")[:300]
         inc.playbook = playbooks.choose({g for a in alerts for g in a.groups}, set(inc.techniques))
@@ -210,6 +219,16 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
         should = band_rank(band) >= band_rank(settings.notify.min_band) or inc.tripwire or inc.is_selftest
         if mw and band != "critical" and not inc.tripwire:
             should = False   # approved maintenance holds non-critical notifications; alerts are still kept
+        routes = routes_for(settings, inc)
+        if routes:
+            inc.team = inc.team or routes[0].team or None
+            if not inc.assignee and routes[0].assign_to:
+                inc.assignee = routes[0].assign_to
+        ac = autoclose_ok(db, settings, inc) if inc.status == "new" else None
+        if ac:
+            inc.status, inc.resolved_at = "auto_closed", utcnow()
+            inc.context_notes = sorted(set(inc.context_notes or []) | {ac})
+            should = False
         already = inc.notified_band is not None and band_rank(inc.notified_band) >= band_rank(band)
         notify = (should and not already) or new_tripwire   # a first tripwire hit is its own alert
         if notify:
@@ -232,7 +251,10 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
 
     gate = settings.llm.enabled and band_rank(band) >= band_rank(settings.llm.min_band)
     band_rose = prev_band is None or band_rank(band) > band_rank(prev_band)
-    if gate and (band_rose or notify):
+    with SessionLocal() as db:
+        cur = db.get(Incident, inc_id)
+        grown = bool(cur and cur.explained_count and cur.alert_count >= settings.resummarise_growth * cur.explained_count)
+    if gate and (band_rose or notify or grown):
         _spawn(_phase2(inc_id))
     elif band == "critical" and band_rose and settings.llm.investigate_critical:
         _spawn(_checks_only(inc_id))   # read-only checks are deterministic: they run with no AI too
@@ -282,6 +304,14 @@ def enqueue(payload: dict, source: str = "wazuh", bypass_filter: bool = False) -
         db.add(q)
         db.commit()
         return q.id
+
+
+def enqueue_many(payloads: list[dict], source: str = "wazuh") -> int:
+    """One transaction for a whole batch (the Wazuh integration and pull mode send many at once)."""
+    with SessionLocal() as db:
+        db.add_all([QueueItem(payload=p, source=source) for p in payloads])
+        db.commit()
+    return len(payloads)
 
 
 async def run_once(limit: int = 50) -> int:

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Request
 
 from .. import ratelimit, runtime
 from ..errors import INGEST_BAD_PAYLOAD, INGEST_BAD_TOKEN, INGEST_TOO_LARGE, SieveError
-from ..worker import enqueue
+from ..worker import enqueue_many
 
 router = APIRouter(tags=["Ingest"])
 MAX_BYTES = 5 * 1024 * 1024
@@ -40,6 +40,4 @@ async def ingest_alert(request: Request):
         raise SieveError(INGEST_TOO_LARGE, f"At most {MAX_ITEMS} alerts per request.", status=413)
     if not items or not all(isinstance(x, dict) and isinstance(x.get("rule"), dict) for x in items):
         raise SieveError(INGEST_BAD_PAYLOAD, "Each alert needs a 'rule' object.")
-    for x in items:
-        enqueue(x, "wazuh")
-    return {"queued": len(items)}
+    return {"queued": enqueue_many(items, "wazuh")}

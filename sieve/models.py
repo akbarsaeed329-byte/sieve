@@ -74,6 +74,10 @@ class Incident(Base):
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     merged_into: Mapped[int | None] = mapped_column(Integer, nullable=True)
     maintenance: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    explained_count: Mapped[int] = mapped_column(Integer, default=0)
+    correlations: Mapped[list] = mapped_column(JSON, default=list)
+    ticket_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    team: Mapped[str | None] = mapped_column(String(80), nullable=True)
     alerts: Mapped[list[Alert]] = relationship(back_populates="incident", order_by="Alert.timestamp")
     explanations: Mapped[list[Explanation]] = relationship(back_populates="incident",
                                                           order_by="Explanation.created_at")
@@ -165,6 +169,8 @@ class User(Base):
     totp_secret: Mapped[str | None] = mapped_column(String(200), nullable=True)   # encrypted, see secrets_store
     totp_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    trainee: Mapped[bool] = mapped_column(Boolean, default=False)
+    sso_subject: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
 
 class Invite(Base):
@@ -318,6 +324,35 @@ class ApiToken(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class CorrelationRule(Base):
+    """User-defined sequence rule: FIRST then THEN, on the same entity, within N minutes -> band."""
+    __tablename__ = "correlation_rules"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120))
+    first: Mapped[dict] = mapped_column(JSON)          # {"rule_ids": [...], "groups": [...], "min_count": 1}
+    then: Mapped[dict] = mapped_column(JSON)
+    same: Mapped[list] = mapped_column(JSON, default=list)   # any of srcip, user, agent_name
+    within_minutes: Mapped[int] = mapped_column(Integer, default=10)
+    band: Mapped[str] = mapped_column(String(16), default="high")
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[str] = mapped_column(String(80))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    hits: Mapped[int] = mapped_column(Integer, default=0)
+
+
+class PracticeAttempt(Base):
+    """Training mode: a trainee's blind verdict on a closed incident, compared with the real outcome."""
+    __tablename__ = "practice"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    incident_id: Mapped[int] = mapped_column(ForeignKey("incidents.id"), index=True)
+    verdict: Mapped[str] = mapped_column(String(24))     # real|false_positive
+    band: Mapped[str] = mapped_column(String(16))
+    correct_verdict: Mapped[bool] = mapped_column(Boolean)
+    correct_band: Mapped[bool] = mapped_column(Boolean)
+    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AuditEvent(Base):

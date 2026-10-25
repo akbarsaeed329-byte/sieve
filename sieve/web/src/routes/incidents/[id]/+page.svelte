@@ -12,7 +12,25 @@
   let id = $derived(page.params.id);
   let users = $state([]), note = $state(''), tagText = $state(''), fpOpen = $state(false), fpReason = $state('');
   let sug = $state(null), makeExc = $state(true), excDays = $state(30), mergeInto = $state('');
-  onMount(async () => { users = await get('/api/users/directory').catch(() => []); });
+  let prec = $state(null), viewed = false;
+  onMount(async () => {
+    users = await get('/api/users/directory').catch(() => []);
+    prec = await get(`/api/incidents/${id}/precedents`).catch(() => null);
+  });
+  // Against overtrust: record that the evidence was actually looked at (needed to close High/Critical).
+  async function markViewed() { if (viewed) return; viewed = true; await post(`/api/incidents/${id}/evidence-viewed`).catch(() => { viewed = false; }); }
+  $effect(() => {
+    if (!i) return;
+    const el = document.getElementById('evidence'); if (!el) return;
+    let t; const ob = new IntersectionObserver(([e]) => { clearTimeout(t); if (e.isIntersecting) t = setTimeout(markViewed, 2000); }, { threshold: 0.3 });
+    ob.observe(el); return () => { ob.disconnect(); clearTimeout(t); };
+  });
+  async function downloadTrace() {
+    const t = await get(`/api/incidents/${id}/trace`);
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(t, null, 2)], { type: 'application/json' }));
+    a.download = `sieve-INC-${id}-decision-trace.json`; a.click();
+  }
   async function openFp() { fpOpen = true; fpReason = ''; sug = await get(`/api/incidents/${id}/exception-suggestion`).catch(() => null); }
   async function submitFp(e) {
     e.preventDefault(); busy = true;
@@ -24,7 +42,10 @@
         toast('Marked false positive. Matching alerts will now be suppressed with your reason.');
       } else toast('Marked false positive.');
       fpOpen = false; await load();
-    } catch (err) { toast(errText(err)); } finally { busy = false; }
+    } catch (err) {
+      if (err.code === 'SIEVE-CASE-428') { fpOpen = false; toast('Check the evidence first: it is below. Then mark it.'); document.getElementById('evidence')?.scrollIntoView({ behavior: 'smooth' }); }
+      else toast(errText(err));
+    } finally { busy = false; }
   }
   async function addNote(e) { e.preventDefault(); if (!note.trim()) return;
     try { await post(`/api/incidents/${id}/comments`, { body: note }); note = ''; await load(); } catch (err) { toast(errText(err)); } }
@@ -45,7 +66,10 @@
   const act = (path, body, msg) => async () => {
     busy = true;
     try { await post(`/api/incidents/${id}/${path}`, body); toast(msg); await load(); }
-    catch (e) { toast(errText(e)); } finally { busy = false; }
+    catch (e) {
+      if (e.code === 'SIEVE-CASE-428') { toast('Check the evidence first: it is below. Then close the incident.'); document.getElementById('evidence')?.scrollIntoView({ behavior: 'smooth' }); }
+      else toast(errText(e));
+    } finally { busy = false; }
   };
   async function tickStep(step, checked) {
     try { await post(`/api/incidents/${id}/checklist/${step}`, { checked }); }
@@ -111,6 +135,8 @@
       <div class="row"><Pill band={i.band} /><span class="small muted">score {i.score}{#if i.status !== 'new'} · {STATUS[i.status]}{/if}</span>
         {#if i.sla_due && i.status === 'new'}{@const u = until(i.sla_due)}<span class="sla" class:late={u.overdue}>SLA {u.text}</span>{/if}
         {#if i.escalated_at}<span class="sla late">escalated</span>{/if}
+        {#if i.team}<span class="tag">team: {i.team}</span>{/if}
+        {#if i.ticket_ref?.jira}<a class="tag" href={i.ticket_ref.jira_url} target="_blank" rel="noopener noreferrer">Jira {i.ticket_ref.jira}</a>{/if}
         {#each i.tags as t}<span class="tag">{t}{#if canEdit()}<button aria-label="Remove tag {t}" onclick={() => dropTag(t)}>×</button>{/if}</span>{/each}
         {#if i.is_selftest}<span class="small muted">· setup test</span>{/if}</div>
       <h1>{i.title}</h1>
@@ -143,6 +169,11 @@
     </div>
   {/if}
   {#if i.partial_context}<div class="banner info" role="note">Partial context: {i.context_notes.join(' ')}</div>{/if}
+  {#if i.status === 'auto_closed'}<div class="banner info" role="note"><span class="grow">Auto-closed by an approved rule: {i.context_notes.find((n) => n.startsWith('auto-closed')) || ''}</span>
+    {#if canEdit()}<button class="btn small" onclick={act('reopen-auto', undefined, 'Reopened. Auto-close is revoked for this rule.')}>Wrong: reopen and revoke</button>{/if}</div>{/if}
+  {#if i.correlations?.length}<div class="banner info" role="note">Correlation rule matched: <strong>{i.correlations.map((c) => c.name).join(', ')}</strong>. Severity raised by your team's rule.</div>{/if}
+  {#if prec}<div class="banner info prec" role="note"><div class="stack grow" style="gap:6px"><strong>{prec.headline}</strong>
+    {#each prec.items.slice(0, 3) as p}<span class="small"><a href="/incidents/{p.id}">#{p.id}</a> {p.status.replace('_', ' ')}{p.closed_by ? ` by ${p.closed_by}` : ''} · {new Date(p.opened_at).toLocaleDateString()} · {p.match}{#if p.note} · “{p.note}”{/if}</span>{/each}</div></div>{/if}
   {#if i.maintenance}<div class="banner info" role="note"><strong>Approved maintenance:</strong> {i.maintenance}. Non-critical notifications were held; the alerts are kept.</div>{/if}
   {#if i.merged_into}<div class="banner info" role="note">This incident was merged into <a href="/incidents/{i.merged_into}">#{i.merged_into}</a>.</div>{/if}
   {#if fpOpen}
@@ -165,7 +196,7 @@
         <div class="row between"><h2 id="sum">What happened</h2>
           <span class="small muted">{aiUsed ? `Written by ${i.explanation.model}, checked against the evidence` : 'Rule-based facts from the evidence'}</span></div>
         <ol class="sum">
-          {#each summary as s}<li>{s.text} {#each s.evidence as r}<a href="#ev-{r.replace(':', '-')}" class="ev">Evidence {evIndex.get(r)}</a> {/each}</li>{/each}
+          {#each summary as s}<li>{s.text} {#each s.evidence as r}<a href="#ev-{r.replace(':', '-')}" class="ev" onclick={markViewed}>Evidence {evIndex.get(r)}</a> {/each}</li>{/each}
         </ol>
         {#if aiUsed && i.explanation.validation?.summary_sentences_dropped}
           <p class="small muted">{plural(i.explanation.validation.summary_sentences_dropped, 'AI sentence')} {i.explanation.validation.summary_sentences_dropped === 1 ? 'was' : 'were'} dropped because the evidence did not support them.</p>
@@ -243,7 +274,7 @@
           <div class="ev-item"><span class="small" style="font-weight:600">Tripwire alert · {hhmmss(a.timestamp)}</span><pre class="log">{a.full_log}</pre>
             {#each Object.entries(a.untrusted) as [k, v]}<Untrusted field={k} value={v} hit={i.tripwire_hits.some((h) => h.field === k)} />{/each}</div>
         {/each}
-        <details><summary class="small">Open all {i.alert_count} log lines</summary>
+        <details ontoggle={markViewed}><summary class="small">Open all {i.alert_count} log lines</summary>
           {#each i.alerts.slice(0, shown) as a}<pre class="log" style="margin-top:6px">{hhmmss(a.timestamp)}  {a.full_log}</pre>{/each}
           {#if shown < i.alerts.length}<button class="link small" onclick={() => (shown += 50)}>Show more</button>{/if}
           {#if i.alerts_truncated}<p class="small muted">{i.alerts_truncated} older lines are in Wazuh.</p>{/if}
@@ -273,6 +304,7 @@
         <div class="row">
           {#if canEdit()}<button class="btn small" onclick={draft}>Draft NIS2 early warning</button>{/if}
           <button class="btn small" onclick={exportStix}>Export STIX 2.1</button>
+          <button class="btn small" onclick={downloadTrace}>Decision trace (audit)</button>
           {#if app.advanced}<a class="btn small" href="/investigate?incident={i.id}">Entity graph</a>{/if}
         </div>
         {#if nis2}
@@ -311,6 +343,7 @@
   .sla.late { background: var(--crit-bg); color: var(--crit); font-weight: 600; }
   .tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); }
   .tag button { border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 0 0 4px; }
+  .prec { background: var(--card); color: var(--ink); border: 1px solid var(--line); }
   .notes { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
   .notes li { border-left: 3px solid var(--line); padding-left: 10px; }
 </style>

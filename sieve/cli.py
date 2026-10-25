@@ -25,6 +25,9 @@ def main(argv: list[str] | None = None) -> None:
     bk = sub.add_parser("backup", help="write a consistent copy of the database (safe while running)")
     bk.add_argument("path")
     sub.add_parser("purge", help="apply the data-retention policy now")
+    mc = sub.add_parser("mcp", help="read-only MCP server for AI assistants (stdio)")
+    mc.add_argument("--url", default="http://127.0.0.1:8080")
+    mc.add_argument("--token", default=None, help="viewer API token (or SIEVE_MCP_TOKEN)")
     sub.add_parser("version")
     a = p.parse_args(argv if argv is not None else sys.argv[1:])
     cmd = a.cmd or "serve"
@@ -39,6 +42,16 @@ def main(argv: list[str] | None = None) -> None:
         print(f"{e.code}: {e.message}\nFix: {e.fix}", file=sys.stderr)
         sys.exit(2)
 
+    if cmd == "mcp":
+        import os
+
+        from .mcp_server import serve
+        tok = a.token or os.environ.get("SIEVE_MCP_TOKEN", "")
+        if not tok.startswith("sv_"):
+            print("Give a viewer API token with --token or SIEVE_MCP_TOKEN.", file=sys.stderr)
+            sys.exit(2)
+        serve(a.url, tok)
+        return
     if cmd == "version":
         print(f"Sieve {__version__}")
     elif cmd == "check-config":

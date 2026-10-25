@@ -4,6 +4,9 @@
   import { get, post } from '$lib/api.js';
   import { app, loadMode } from '$lib/state.svelte.js';
   import ErrorBox from '$c/ErrorBox.svelte';
+  import { onMount } from 'svelte';
+  let sso = $state(null);
+  onMount(async () => { sso = await get('/api/auth/oidc/config').catch(() => null); });
   let username = $state(''), password = $state(''), otp = $state(''), needOtp = $state(false), error = $state(null), busy = $state(false);
   async function submit(e) {
     e.preventDefault(); busy = true; error = null;
@@ -26,4 +29,5 @@
     <ErrorBox {error} />
     <button class="btn primary" disabled={busy}>Sign in</button>
   </form>
+  {#if sso?.enabled}<div class="row" style="justify-content:center"><span class="muted small">or</span></div><a class="btn" href="/api/auth/oidc/start" data-sveltekit-reload>{sso.label}</a>{/if}
 </section>

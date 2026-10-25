@@ -18,7 +18,11 @@ Sieve sits between Wazuh and your team. It:
 6. **Learns from your verdicts.** A false positive becomes a narrow, expiring exception; noisy rules rise to the top.
 7. **Runs the case.** Owner, notes, SLA timers and escalation, maintenance windows, shift handover, executive report,
    Jira / TheHive / signed webhooks.
-8. **Works with no AI at all**, with a local model (Ollama), or with a cloud model (masked by default).
+8. **Gets smarter with your team.** Correlation rules you can test on history, "seen before" precedents, weight
+   suggestions from your verdicts, auto-close that a rule has to earn, team routing, and a practice mode for juniors.
+9. **Fits your stack.** Teams, PagerDuty, Jira (two-way), TheHive, webhooks, SSO, Wazuh dashboard links, and a
+   read-only MCP server for your own AI assistant. Ask it questions in plain English.
+10. **Works with no AI at all**, with a local model (Ollama), or with a cloud model (masked by default).
 
 ## How it compares (details and sources: [docs/COMPARISON.md](docs/COMPARISON.md))
 
@@ -34,14 +38,15 @@ Sieve sits between Wazuh and your team. It:
 
 | | Raw Wazuh | Naive LLM triage | **Sieve** |
 |---|---|---|---|
-| Notifications per 1,000 alerts | 449 | 688 | **18** |
+| Notifications per 1,000 alerts | 449 | 688 | **31** |
 | Injections that lowered a severity | – | 43% | **0%** |
 | Poisoned alerts caught by the tripwire | – | – | **100%** |
+| True attacks notified | 50% | 100% | **100%** |
 | False alarms on benign scenarios | 40% | 80% | **0%** |
 
-Synthetic seed data: these numbers check the design guarantees, not real-world accuracy. Known gap: default
-weights notify 58% of single-alert attacks (they all still become incidents). Details in
-[docs/EVALUATION.md](docs/EVALUATION.md).
+Synthetic seed data: these numbers check the design guarantees, not real-world accuracy. Details and caveats in
+[docs/EVALUATION.md](docs/EVALUATION.md). Similar open-source projects, and how Sieve differs, are listed in
+[docs/COMPARISON.md](docs/COMPARISON.md).
 
 ## Quick start
 
@@ -94,7 +99,7 @@ docs/            ARCHITECTURE · STATUS · EVALUATION · ERROR_CODES · PLUGINS 
 ## Develop
 ```bash
 pip install -e ".[dev]"
-make lint test     # 206 tests; 80%+ coverage required on pipeline and llm
+make lint test     # 240 tests; 80%+ coverage required on pipeline and llm
 make web           # rebuild the UI (Node 20+)
 make bench         # PoisonedLogs harness
 ```

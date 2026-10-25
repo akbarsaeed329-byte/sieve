@@ -37,3 +37,13 @@ set `notify.public_url`.
 * Create a dedicated read-only Wazuh API user.
 * Back up nightly: `sieve backup /backups/sieve-$(date +%F).db` and keep `data/.secret_key` with it.
 * Start new deployments in shadow mode for a week and compare Sieve's bands with yours under Metrics.
+
+## 6. Optional connections
+* **Single sign-on:** Settings › Security › Single sign-on. Register Sieve as a web app at your identity provider with
+  redirect URI `https://<sieve>/api/auth/oidc/callback`; map groups to admin and analyst.
+* **Wazuh dashboard links:** Dashboards Management › Index patterns › `wazuh-alerts-*` › field `id` › format URL,
+  template `https://<sieve>/go/alert/{{value}}`. Every alert in Discover links to its Sieve incident.
+* **Your own AI assistant (MCP):** create a *viewer* API token, then configure your client to run
+  `sieve mcp --url https://<sieve> --token sv_…`. Tools: list_incidents, get_incident, precedents, ask.
+* **Jira two-way:** store `SIEVE_JIRA_WEBHOOK_SECRET`, then add a Jira webhook (issue updated) to
+  `https://<sieve>/api/integrations/jira/webhook?secret=<value>`. Moving the issue to Done resolves the incident.

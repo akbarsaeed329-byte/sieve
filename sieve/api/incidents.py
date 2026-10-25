@@ -19,7 +19,7 @@ from ..pipeline.score import BAND_ORDER
 from .common import SessionLocal, get_incident, iso
 
 router = APIRouter(prefix="/api/incidents", tags=["Incidents"])
-STATUSES = ("new", "acknowledged", "resolved", "false_positive", "merged")
+STATUSES = ("new", "acknowledged", "resolved", "false_positive", "merged", "auto_closed")
 OPEN = ("new", "acknowledged")
 
 
@@ -30,7 +30,8 @@ def summary(i: Incident) -> dict:
             "last_seen": iso(i.last_seen), "acknowledged_at": iso(i.acknowledged_at), "assignee": i.assignee,
             "partial_context": i.partial_context, "is_selftest": i.is_selftest, "human_band": i.human_band,
             "tags": i.tags or [], "sla_due": iso(i.sla_due), "escalated_at": iso(i.escalated_at),
-            "maintenance": i.maintenance, "merged_into": i.merged_into}
+            "maintenance": i.maintenance, "merged_into": i.merged_into, "team": i.team,
+            "correlations": i.correlations or [], "ticket_ref": i.ticket_ref}
 
 
 def sort_key(i: Incident):
@@ -98,9 +99,24 @@ class Note(BaseModel):
     reason: str = ""
 
 
-def _transition(inc_id: int, status: str, who: str, reason: str = "") -> dict:
+def _require_evidence(db, i: Incident, who: str, user_id: int) -> None:
+    """Against overtrust: High/Critical cannot be closed by someone who never opened its evidence."""
+    s = runtime.current()
+    if not s.require_evidence_review or user_id < 0 or i.band not in ("high", "critical"):
+        return
+    from ..models import AuditEvent
+    seen = db.scalar(select(AuditEvent.id).where(AuditEvent.action == "evidence.viewed", AuditEvent.actor == who,
+                                                 AuditEvent.target == f"INC-{i.id}"))
+    if not seen:
+        raise SieveError("SIEVE-CASE-428", "Open the evidence before closing a high or critical incident.",
+                         "Scroll to Evidence (or press E) and check at least one log line, then try again.", status=428)
+
+
+def _transition(inc_id: int, status: str, who: str, reason: str = "", user_id: int = 0) -> dict:
     with SessionLocal() as db:
         i = get_incident(db, inc_id)
+        if status in ("resolved", "false_positive"):
+            _require_evidence(db, i, who, user_id)
         before = i.status
         i.status = status
         now = utcnow()
@@ -128,11 +144,15 @@ def _emit_status(inc_id: int) -> None:
     with SessionLocal() as db:
         inc = db.get(Incident, inc_id)
         db.expunge(inc)
+    async def both():
+        await emit("incident.status_changed", inc, runtime.current())
+        if inc.status in ("resolved", "false_positive"):
+            from ..notify.dispatch import on_resolved
+            await on_resolved(inc, runtime.current())
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(emit("incident.status_changed", inc, runtime.current()))
+        asyncio.get_running_loop().create_task(both())
     except RuntimeError:
-        asyncio.run(emit("incident.status_changed", inc, runtime.current()))
+        asyncio.run(both())
 
 
 @router.post("/{inc_id}/acknowledge")
@@ -142,7 +162,7 @@ def acknowledge(inc_id: int, user=Depends(analyst)):
 
 @router.post("/{inc_id}/resolve")
 def resolve(inc_id: int, n: Note | None = None, user=Depends(analyst)):
-    return _transition(inc_id, "resolved", user.username, (n or Note()).reason)
+    return _transition(inc_id, "resolved", user.username, (n or Note()).reason, user.id)
 
 
 @router.post("/{inc_id}/false-positive")
@@ -150,7 +170,7 @@ def false_positive(inc_id: int, n: Note, user=Depends(analyst)):
     if not n.reason.strip():
         raise SieveError(BAD_REQUEST, "Say why this is a false positive; the reason tunes future filtering.",
                          status=422)
-    return _transition(inc_id, "false_positive", user.username, n.reason)
+    return _transition(inc_id, "false_positive", user.username, n.reason, user.id)
 
 
 @router.post("/{inc_id}/reopen")

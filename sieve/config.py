@@ -121,6 +121,7 @@ class Asset(BaseModel):
     agent_name: str
     criticality: Literal["test", "normal", "critical"] = "normal"
     owner: str = ""
+    tags: list[str] = Field(default_factory=list)
 
 
 class IntelCfg(BaseModel):
@@ -188,6 +189,85 @@ class RetentionCfg(BaseModel):
     llm_calls_days: int = Field(30, ge=1)
 
 
+class Floor(BaseModel):
+    """A single event that always reaches at least `band` (deterministic; shown as an override)."""
+    name: str
+    band: BandName = "high"
+    min_level: int | None = Field(None, ge=0, le=16)
+    techniques: list[str] = Field(default_factory=list)   # prefix match: T1136 matches T1136.001
+    critical_asset_only: bool = False
+    enabled: bool = True
+
+
+def _default_floors() -> list[Floor]:
+    return [
+        Floor(name="High-importance Wazuh rule (level 12+)", min_level=12, band="high"),
+        Floor(name="Account created on a critical asset", techniques=["T1136", "T1098"], band="high",
+              critical_asset_only=True),
+        Floor(name="Credential dumping", techniques=["T1003"], band="high"),
+        Floor(name="Ransomware-like impact", techniques=["T1486", "T1490"], band="critical"),
+    ]
+
+
+class Route(BaseModel):
+    """Send matching incidents to a team's own channels (in addition to, or instead of, the defaults)."""
+    name: str
+    hosts: list[str] = Field(default_factory=list)       # glob patterns, e.g. web-*, dc-0?
+    tags: list[str] = Field(default_factory=list)        # asset tags
+    min_band: BandName = "low"
+    team: str = ""
+    telegram_chat_id: str = ""
+    slack_channel: str = ""
+    email_to: list[str] = Field(default_factory=list)
+    assign_to: str = ""                                  # auto-assign owner
+    exclusive: bool = False                              # True: do not also send to the default channels
+    enabled: bool = True
+
+
+class AutoCloseCfg(BaseModel):
+    """Graduated autonomy: per-rule auto-close of low/medium incidents, earned by analyst agreement."""
+    enabled: bool = False
+    rules: list[str] = Field(default_factory=list)       # rule IDs an admin approved for auto-close
+    max_band: Literal["low", "medium"] = "medium"
+    min_verdicts: int = Field(30, ge=5)
+    min_agreement: float = Field(0.95, ge=0.5, le=1.0)
+
+
+class ProfileCfg(BaseModel):
+    """Company context: trusted, admin-written. Feeds the AI as context and labels off-hours activity."""
+    organisation: str = ""
+    industry: str = ""
+    business_hours: str = "08:00-18:00"
+    business_days: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])   # Monday = 0
+    timezone: str = "UTC"
+    normal_activity: list[str] = Field(default_factory=list)
+    critical_services: list[str] = Field(default_factory=list)
+
+
+class TeamsCfg(BaseModel):
+    enabled: bool = False
+    webhook_env: str = "SIEVE_TEAMS_WEBHOOK"
+
+
+class PagerDutyCfg(BaseModel):
+    enabled: bool = False
+    routing_key_env: str = "SIEVE_PAGERDUTY_KEY"
+    min_band: BandName = "critical"
+
+
+class OidcCfg(BaseModel):
+    enabled: bool = False
+    # e.g. https://login.microsoftonline.com/<tenant>/v2.0, https://accounts.google.com, a Keycloak realm URL
+    issuer: str = ""
+    client_id: str = ""
+    client_secret_env: str = "SIEVE_OIDC_CLIENT_SECRET"
+    groups_claim: str = "groups"
+    admin_groups: list[str] = Field(default_factory=list)
+    analyst_groups: list[str] = Field(default_factory=list)
+    default_role: Literal["viewer", "analyst", "admin", "none"] = "viewer"
+    button_label: str = "Sign in with SSO"
+
+
 class PluginState(BaseModel):
     enabled: bool = False
     config: dict[str, Any] = Field(default_factory=dict)
@@ -215,6 +295,15 @@ class Settings(BaseModel):
     thehive: TheHiveCfg = Field(default_factory=TheHiveCfg)
     retention: RetentionCfg = Field(default_factory=RetentionCfg)
     require_2fa_for_admins: bool = False
+    floors: list[Floor] = Field(default_factory=_default_floors)
+    routes: list[Route] = Field(default_factory=list)
+    autoclose: AutoCloseCfg = Field(default_factory=AutoCloseCfg)
+    profile: ProfileCfg = Field(default_factory=ProfileCfg)
+    teams: TeamsCfg = Field(default_factory=TeamsCfg)
+    pagerduty: PagerDutyCfg = Field(default_factory=PagerDutyCfg)
+    oidc: OidcCfg = Field(default_factory=OidcCfg)
+    require_evidence_review: bool = True   # High/Critical: open the evidence before closing
+    resummarise_growth: float = Field(1.5, ge=1.1, le=10)
     tripwire_threshold: float = Field(1.0, gt=0)
     shadow_mode: bool = False           # triage and record, but send no notifications
     allow_active_response: bool = False  # human-approved Wazuh active response; off by default
@@ -252,6 +341,8 @@ EDITABLE_SECTIONS = (
     "weights", "bands", "grouping", "filter", "llm", "notify", "assets", "intel", "wazuh", "plugins",
     "tripwire_threshold", "shadow_mode", "allow_active_response", "simple_mode_default",
     "sla", "webhooks", "jira", "thehive", "retention", "require_2fa_for_admins",
+    "floors", "routes", "autoclose", "profile", "teams", "pagerduty", "oidc", "require_evidence_review",
+    "resummarise_growth",
 )
 # allow_active_response can only be turned on from the config file, never from the browser.
 UI_FORBIDDEN_ENABLE = ("allow_active_response",)

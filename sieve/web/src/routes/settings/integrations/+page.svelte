@@ -6,6 +6,7 @@
   import Secret from '$c/Secret.svelte';
   let wz = $state({ ...S.s.wazuh });
   let n = $state(JSON.parse(JSON.stringify(S.s.notify)));
+  let teams = $state({ ...S.s.teams }), pd = $state({ ...S.s.pagerduty });
   let results = $state({});
   async function test(kind, path) {
     results[kind] = { pending: true };
@@ -40,6 +41,7 @@
   {@render outcome(results.wazuh)}
   <div class="row"><button class="btn primary" onclick={saveWazuh} disabled={S.saving}>Save</button>
     <button class="btn" onclick={() => test('wazuh', '/api/health/test/wazuh')}>Test connection</button></div>
+  <p class="small muted">Link alerts in the Wazuh dashboard to Sieve: in Dashboards Management › Index patterns › wazuh-alerts-*, set the <code>id</code> field's format to URL with template <code>{S.s.notify.public_url}/go/alert/{'{{value}}'}</code>.</p>
   <p class="small muted">Active response: {S.s.allow_active_response ? 'enabled (every action needs an admin to confirm it)' : 'disabled. It can only be enabled in the config file.'}</p>
 </section>
 
@@ -78,6 +80,15 @@
     <div class="field"><label for="e5">To (comma-separated)</label><input id="e5" type="text" value={n.email.to.join(', ')} onchange={(e) => (n.email.to = e.currentTarget.value.split(',').map((x) => x.trim()).filter(Boolean))} /></div></div>
   {@render outcome(results.email)}
   <button class="btn small" style="align-self:flex-start" onclick={() => test('email', '/api/health/test/notify/email')}>Send test email</button>
+  <h3>Microsoft Teams</h3>
+  <div class="grid"><label class="row"><input type="checkbox" bind:checked={teams.enabled} /> Enabled</label><Secret name={teams.webhook_env} label="Workflows / incoming webhook URL" /></div>
+  {@render outcome(results.teams)}
+  <div class="row"><button class="btn small" onclick={() => save({ teams }, 'Teams saved.')}>Save Teams</button><button class="btn small" onclick={() => test('teams', '/api/health/test/notify/teams')}>Send test card</button></div>
+  <h3>PagerDuty</h3>
+  <div class="grid"><label class="row"><input type="checkbox" bind:checked={pd.enabled} /> Page on-call (resolves automatically when Sieve resolves)</label>
+    <div class="field"><label for="pdb">From severity</label><select id="pdb" bind:value={pd.min_band}><option value="critical">Critical</option><option value="high">High</option></select></div>
+    <Secret name={pd.routing_key_env} label="Events API v2 routing key" /></div>
+  <button class="btn small" style="align-self:flex-start" onclick={() => save({ pagerduty: pd }, 'PagerDuty saved.')}>Save PagerDuty</button>
   <h3>Daily digest</h3>
   <div class="grid"><label class="row"><input type="checkbox" bind:checked={n.digest.enabled} /> Send a daily digest</label>
     <div class="field"><label for="d1">Hour (UTC)</label><input id="d1" type="number" min="0" max="23" bind:value={n.digest.hour_utc} /></div>

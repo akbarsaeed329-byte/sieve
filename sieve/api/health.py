@@ -132,9 +132,10 @@ async def test_llm(name: str, user=Depends(admin)):
 @router.post("/api/health/test/notify/{channel}")
 async def test_notify(channel: str, user=Depends(admin)):
     s = runtime.current()
-    if channel not in ("telegram", "slack", "discord", "email", "console"):
+    if channel not in ("telegram", "slack", "discord", "email", "teams", "pagerduty", "console"):
         raise SieveError(NOT_FOUND, f"No channel called {channel}.", status=404)
-    if channel != "console" and not getattr(s.notify, channel).enabled:
+    cfg = getattr(s.notify, channel, None) or getattr(s, channel, None)
+    if channel != "console" and not (cfg and cfg.enabled):
         raise SieveError(NOTIFY_NOT_CONFIGURED, f"{channel.capitalize()} is not enabled.", status=424)
     try:
         await dispatch.channel_for(channel, s).send_text("Sieve test message: this channel works.")

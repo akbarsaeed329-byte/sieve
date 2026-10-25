@@ -47,8 +47,10 @@ async def explain_incident(inc_id: int, settings: Settings) -> dict | None:
         if inc is None:
             return None
         g = gather(inc)
+        g["context"]["company_profile"] = {k: v for k, v in settings.profile.model_dump().items() if v}
         refs = evidence_refs(inc)
         score, band, breakdown = inc.score, inc.band, inc.breakdown
+        count_now = inc.alert_count
 
     def build(is_cloud: bool):
         m = masker_for(is_cloud, settings.llm.mask_for_cloud, g["users"], g["hosts"])
@@ -63,6 +65,9 @@ async def explain_incident(inc_id: int, settings: Settings) -> dict | None:
                  allowed_steps=set(g["steps"]), untrusted=g["untrusted"])
     v["provider"], v["model"] = ans.provider, ans.model
     with SessionLocal() as db:
+        row = db.get(Incident, inc_id)
+        if row:
+            row.explained_count = count_now
         db.add(Explanation(incident_id=inc_id, kind="summary", provider=ans.provider, model=ans.model, summary=v,
                            validation=v["validation"], hypotheses=v["hypotheses"], latency_ms=ans.latency_ms,
                            tokens=ans.tokens, prompt_hash=ans.prompt.digest))

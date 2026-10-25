@@ -98,14 +98,31 @@ def create_app(settings: Settings | None = None, start_worker: bool = True) -> F
             resp.headers.setdefault("Cache-Control", "no-store")
         return resp
 
-    from .api import admin, auth_routes, cases, data, health, incidents, ingest, metrics, nis2
-    for r in (ingest.router, auth_routes.router, cases.router, incidents.router, nis2.router, admin.router, data.router,
+    from .api import admin, auth_routes, cases, data, health, incidents, ingest, metrics, nis2, smart
+    for r in (ingest.router, auth_routes.router, cases.router, smart.router, incidents.router, nis2.router,
+              admin.router, data.router,
               health.router, metrics.router):
         app.include_router(r)
 
     @app.api_route("/api/{rest:path}", methods=["GET", "POST", "PUT", "DELETE"], include_in_schema=False)
     def api_404(rest: str):
         raise SieveError("SIEVE-API-404", f"No API route /api/{rest[:80]}.", status=404)
+
+    @app.get("/go/alert/{wazuh_id}", include_in_schema=False)
+    def go_alert(wazuh_id: str):
+        """Deep link for the Wazuh dashboard: set the alert 'id' field's URL formatter to
+        https://<sieve>/go/alert/{{value}} and every alert links to its Sieve incident."""
+        from fastapi.responses import RedirectResponse
+        from sqlalchemy import select
+
+        from .db import SessionLocal
+        from .models import Alert, Suppression
+        with SessionLocal() as db:
+            a = db.scalar(select(Alert).where(Alert.wazuh_id == wazuh_id[:120]))
+            if a and a.incident_id:
+                return RedirectResponse(f"/incidents/{a.incident_id}", status_code=302)
+            sup = db.scalar(select(Suppression.id).where(Suppression.wazuh_id == wazuh_id[:120]))
+        return RedirectResponse("/hidden" if sup else "/incidents", status_code=302)
 
     @app.get("/{path:path}", include_in_schema=False)
     def spa(path: str):

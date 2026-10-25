@@ -1,6 +1,6 @@
-# QA report, v0.2.0 (2026-10-18)
+# QA report, v0.3.0 (2026-10-18)
 
-Method: 206 automated tests (unit, API, role matrix, pipeline, injection), the PoisonedLogs benchmark, and a
+Method: 240 automated tests (unit, API, role matrix, pipeline, injection), the PoisonedLogs benchmark, and a
 scripted browser pass over every page as admin, analyst and viewer at 1366 px and 390 px, with alerts carrying
 XSS payloads (`<script>`, `onerror`, `onload`) in every field that reaches the screen. The browser pass checks
 for executed script, JavaScript dialogs, console errors, horizontal overflow, open redirect, path traversal,
@@ -29,9 +29,11 @@ security headers and cookie flags. Final run: **no issues**.
 | 18 | Medium | tutorial recording | Pull mode had no switch in Settings (config file only) | checkbox and interval in Settings › Integrations |
 | 19 | Low | marketing recording | Escalation said "0 min past its SLA" | "has just passed its SLA" |
 | 20 | Low | tutorial review | "(s)" plurals in reports, overview banner and validation note | proper singular and plural wording |
+| 21 | Medium | v0.3 tests | Weight-tuning search stuck when two weights had to move together | separation-aware search; test |
+| 22 | Low | load test | Ingest committed each alert separately (~1,600/s) | batched transaction for lists and pull mode |
 | 16 | Low | tests | Login rate limit (10/min/IP) fired before the per-account lockout and would hit offices behind one NAT | 20/min/IP; lockout stays at 10 failures/account |
 
 ## Known limitations (not bugs)
-* Default weights notify 58% of seed true attacks; single-alert attacks become Medium incidents (see EVALUATION.md).
-* AI summaries are written when an incident reaches its band; they are not regenerated as more alerts join.
+* Severity floors were added knowing which seed scenarios had been missed; they follow Wazuh's level semantics and
+  common high-impact techniques, but only a live lab can confirm the recall on real traffic.
 * Plugins run in-process with containment (ADR-006). No multi-tenant (MSSP) mode yet.

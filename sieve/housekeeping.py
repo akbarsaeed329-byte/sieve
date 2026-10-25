@@ -55,7 +55,7 @@ async def pull_from_indexer() -> int:
     if not (s.wazuh.pull_enabled and s.wazuh.indexer_url):
         return 0
     from .integrations.wazuh import indexer_search
-    from .worker import enqueue
+    from .worker import enqueue_many
     with SessionLocal() as db:
         kv = db.get(KV, "pull.cursor")
         cursor = (kv.value or {}).get("ts") if kv else None
@@ -69,11 +69,14 @@ async def pull_from_indexer() -> int:
         return 0
     hits = (j.get("hits") or {}).get("hits") or []
     last = cursor
+    batch = []
     for h in hits:
         src = h.get("_source") or {}
         src.setdefault("id", h.get("_id"))
-        enqueue(src, "pull")
+        batch.append(src)
         last = src.get("timestamp") or last
+    if batch:
+        enqueue_many(batch, "pull")
     if last and last != cursor:
         with SessionLocal() as db:
             kv = db.get(KV, "pull.cursor")

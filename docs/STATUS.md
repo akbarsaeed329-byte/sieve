@@ -1,4 +1,4 @@
-# Status: what exists vs. the plan (v0.2.0, 2026-10-18)
+# Status: what exists vs. the plan (v0.3.0, 2026-10-18)
 
 done = works and is tested; partial = works with stated limits; todo = not started. Item numbers refer to
 MASTER_AI_PROMPT.md.
@@ -37,12 +37,29 @@ MASTER_AI_PROMPT.md.
 | Signed webhooks, Jira, TheHive, email, API tokens | done | v0.2 |
 | 2FA (TOTP), admin 2FA policy, rate limits, retention, backup command | done | v0.2 |
 | Wazuh indexer pull mode | done | v0.2 |
+| Severity floors (level 12+, account creation on critical assets, credential dumping, ransomware) | done | v0.3; closes the single-alert notification gap |
+| Correlation rules with 30-day backtest | done | v0.3 |
+| Precedent panel ("seen before") | done | v0.3 |
+| Team routing (host patterns, asset tags) with auto-assign | done | v0.3 |
+| Graduated auto-close (earned per rule, revocable) | done | v0.3 |
+| Weight-tuning suggestions from verdicts | done | v0.3; applied only by an admin |
+| Re-summarise when an incident grows | done | v0.3 |
+| Company profile (AI context, off-hours facts) | done | v0.3 |
+| Verify-before-close for High/Critical | done | v0.3 |
+| Decision-trace export | done | v0.3 |
+| Ask Sieve (deterministic answers) + MCP server | done | v0.3 |
+| Training mode (practice on closed incidents) | done | v0.3 |
+| Microsoft Teams, PagerDuty (trigger + resolve), Jira two-way | done | v0.3 |
+| Wazuh dashboard deep links (/go/alert/{id}) | done | v0.3; a native dashboard plugin is todo |
+| SSO (OIDC with PKCE) | done | v0.3; SAML is todo |
+| Signed releases, SBOM, provenance | done | v0.3 release workflow |
 | Plugin SDK out-of-process | todo | ADR-006 (in-process with containment for now) |
-| SSO (OIDC/SAML) | todo | |
 | Alembic migrations | todo | ADR-005 (additive migrations for 0.x) |
 | Real-model benchmark, ablations, usability study | todo | needs the Phase-0 lab |
 
-Open question for maintainers: default weights notify only 58% of seed true attacks (single-alert attacks score
-Medium). Tune on lab data or lower `notify.min_band`; see docs/EVALUATION.md.
+Validation still needed: everything has been tested against stand-ins and a synthetic seed set, not a live Wazuh
+lab with real users. See docs/EVALUATION.md.
 
 | Multi-tenant (MSSP) | todo | |
+| High availability (multiple workers, Postgres) | todo | one worker sustains ~190 alerts/s on SQLite (benchmark/load.py) |
+| Native Wazuh dashboard plugin | todo | |

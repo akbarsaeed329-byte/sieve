@@ -88,6 +88,7 @@ def compute_score(
     *,
     sequence: list[tuple[list[str], str | None]] | None = None,
     entity_tactics: set[str] | list[str] | None = None,
+    extra_overrides: list[tuple[str, str]] | None = None,
 ) -> tuple[float, Band, list[dict], list[str]]:
     """Return (score, band, breakdown_rows, override_reasons).
 
@@ -111,22 +112,23 @@ def compute_score(
     n = incident.alert_count or 1
     R = math.log2(1 + n)
 
-    parts: list[tuple[str, float]] = [(f"Wazuh rule level {max_level}", L_score)]
+    # (key, label, factor, weight): points = factor * weight. Keys let weight tuning re-score history.
+    parts: list[tuple[str, str, float, float]] = [("level", f"Wazuh rule level {max_level}", L_score, 1.0)]
     if A:
         label = settings.criticality_label(incident.agent_name)
-        parts.append((f"{incident.agent_name or 'Host'} is tagged {label}", w.asset * A))
+        parts.append(("asset", f"{incident.agent_name or 'Host'} is tagged {label}", A, w.asset))
     if V:
-        parts.append(("Unpatched related vulnerability on this host", w.vuln * V))
+        parts.append(("vuln", "Unpatched related vulnerability on this host", V, w.vuln))
     if T:
-        parts.append(("Source IP on a threat-intel list", w.intel * T))
+        parts.append(("intel", "Source IP on a threat-intel list", T, w.intel))
     if C:
-        parts.append((_chain_label(tactics), w.chain * C))
+        parts.append(("chain", _chain_label(tactics), C, w.chain))
     if N:
-        parts.append(("First-seen behaviour for this entity in 14 days", w.novelty * N))
+        parts.append(("novelty", "First-seen behaviour for this entity in 14 days", N, w.novelty))
     if n > 1:
-        parts.append((f"Volume: {n} alerts", w.volume * R))
+        parts.append(("volume", f"Volume: {n} alerts", R, w.volume))
 
-    score = min(100.0, sum(p for _, p in parts))
+    score = min(100.0, sum(f * wt for _, _, f, wt in parts))
     band: Band = _band(score, b)
 
     overrides: list[str] = []
@@ -142,5 +144,24 @@ def compute_score(
     if overrides:
         band = "critical"
 
-    breakdown = [{"label": lbl, "points": round(p, 1)} for lbl, p in parts]
+    # Severity floors (deterministic, configurable): some single events always matter.
+    techniques = {t for a in incident.alerts for t in (a.mitre_ids or [])}
+    crit_asset = settings.criticality_label(incident.agent_name) == "critical"
+    for fl in settings.floors:
+        if not fl.enabled:
+            continue
+        hit_level = fl.min_level is not None and max_level >= fl.min_level
+        hit_tech = bool(fl.techniques) and any(t == x or t.startswith(x + ".") for t in techniques for x in fl.techniques)
+        if not (hit_level or hit_tech) or (fl.critical_asset_only and not crit_asset):
+            continue
+        if band_rank(fl.band) > band_rank(band):
+            band = fl.band
+            overrides.append(f"Floor: {fl.name} is always at least {fl.band}")
+    for name, fb in extra_overrides or []:
+        overrides.append(f"Correlation rule: {name}")
+        if band_rank(fb) > band_rank(band):
+            band = fb
+
+    breakdown = [{"key": k, "label": lbl, "factor": round(f, 4), "weight": wt, "points": round(f * wt, 1)}
+                 for k, lbl, f, wt in parts]
     return round(score, 1), band, breakdown, overrides

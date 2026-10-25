@@ -30,6 +30,14 @@ def facts(inc: Incident) -> list[dict]:
         as_user = f" as {ok.user}" if ok.user else ""
         out.append({"text": f"{lead} {ok.srcip or 'the same source'} logged in successfully{as_user}.",
                     "evidence": [f"alert:{ok.id}"]})
+        try:
+            from .. import runtime
+            from ..smart import outside_business_hours
+            if outside_business_hours(runtime.current(), ok.timestamp):
+                out.append({"text": "The login happened outside business hours set in the company profile.",
+                            "evidence": [f"alert:{ok.id}", "context:profile"]})
+        except Exception:  # noqa: BLE001
+            pass
     if not out and alerts:
         top = max(alerts, key=lambda x: x.level)
         n = inc.alert_count
@@ -55,5 +63,5 @@ def facts(inc: Incident) -> list[dict]:
 
 def evidence_refs(inc: Incident) -> list[str]:
     refs = [f"alert:{a.id}" for a in inc.alerts]
-    refs += ["context:intel", "context:baseline", "context:tripwire", "context:partial"]
+    refs += ["context:intel", "context:baseline", "context:tripwire", "context:partial", "context:profile"]
     return refs

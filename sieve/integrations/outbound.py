@@ -84,7 +84,17 @@ async def _jira(inc: Incident, settings: Settings) -> None:
         async with http.client(timeout=15) as c:
             r = await c.post(f"{j.base_url.rstrip('/')}/rest/api/3/issue", json=body,
                              auth=(j.email, secrets_store.resolve(j.token_env)))
-        _record(inc.id, "jira", r.status_code in (200, 201), None if r.status_code in (200, 201) else f"HTTP {r.status_code}")
+        ok = r.status_code in (200, 201)
+        _record(inc.id, "jira", ok, None if ok else f"HTTP {r.status_code}")
+        if ok:
+            key = (r.json() or {}).get("key")
+            if key:
+                with SessionLocal() as db:
+                    row = db.get(Incident, inc.id)
+                    if row:
+                        row.ticket_ref = {**(row.ticket_ref or {}), "jira": key,
+                                          "jira_url": f"{j.base_url.rstrip('/')}/browse/{key}"}
+                        db.commit()
     except (httpx.TimeoutException, httpx.TransportError) as e:
         _record(inc.id, "jira", False, type(e).__name__)
 

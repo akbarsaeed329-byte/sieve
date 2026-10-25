@@ -1,5 +1,5 @@
 export const BAND = { critical: 'Critical', high: 'High', medium: 'Medium', low: 'Low' };
-export const STATUS = { new: 'New', acknowledged: 'Acknowledged', resolved: 'Resolved', false_positive: 'False positive', merged: 'Merged' };
+export const STATUS = { new: 'New', acknowledged: 'Acknowledged', resolved: 'Resolved', false_positive: 'False positive', merged: 'Merged', auto_closed: 'Auto-closed' };
 
 export function until(iso) {
   if (!iso) return null;

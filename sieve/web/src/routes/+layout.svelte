@@ -53,8 +53,10 @@
   let nav = $derived([
     { href: '/', label: 'Overview' },
     { href: '/incidents', label: 'Incidents' },
+    { href: '/ask', label: 'Ask Sieve' },
     ...(app.advanced ? [{ href: '/investigate', label: 'Investigate' }, { href: '/coverage', label: 'Coverage' },
       { href: '/reports', label: 'Metrics' }, { href: '/tuning', label: 'Tuning' }] : []),
+    ...(app.advanced || app.me?.trainee ? [{ href: '/practice', label: 'Practice' }] : []),
     { href: '/hidden', label: 'Hidden alerts' },
     { href: '/summary', label: 'Reports' },
     { href: '/health', label: 'Health' },

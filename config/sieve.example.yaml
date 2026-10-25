@@ -75,3 +75,18 @@ thehive: { enabled: false, base_url: "", token_env: SIEVE_THEHIVE_TOKEN, min_ban
 
 shadow_mode: false            # triage and record, send nothing: validate Sieve on a new network first
 allow_active_response: false  # Wazuh firewall-drop / disable-account; each run needs an admin's confirmation
+
+# --- v0.3 ---
+require_evidence_review: true        # High/Critical: open the evidence before closing
+resummarise_growth: 1.5              # re-run the AI summary when an incident grows by 50%
+floors:                              # single events that always reach at least this band (defaults shown)
+  - { name: "High-importance Wazuh rule (level 12+)", min_level: 12, band: high }
+  - { name: "Account created on a critical asset", techniques: [T1136, T1098], band: high, critical_asset_only: true }
+  - { name: "Credential dumping", techniques: [T1003], band: high }
+  - { name: "Ransomware-like impact", techniques: [T1486, T1490], band: critical }
+routes: []        # - { name: web, hosts: ["web-*"], team: "Web team", telegram_chat_id: "-100…", assign_to: omar }
+autoclose: { enabled: false, rules: [], max_band: medium, min_verdicts: 30, min_agreement: 0.95 }
+profile: { organisation: "", industry: "", business_hours: "08:00-18:00", timezone: "UTC", normal_activity: [] }
+teams: { enabled: false, webhook_env: SIEVE_TEAMS_WEBHOOK }
+pagerduty: { enabled: false, routing_key_env: SIEVE_PAGERDUTY_KEY, min_band: critical }
+oidc: { enabled: false, issuer: "", client_id: "", client_secret_env: SIEVE_OIDC_CLIENT_SECRET, admin_groups: [], analyst_groups: [], default_role: viewer }

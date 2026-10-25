@@ -6,7 +6,8 @@
   import ErrorBox from '$c/ErrorBox.svelte';
   let { children } = $props();
   onMount(loadSettings);
-  let tabs = $derived(app.me?.role === 'admin' ? [['integrations', 'Integrations'], ['models', 'Models'], ['exceptions', 'Exceptions & maintenance'],
+  let tabs = $derived(app.me?.role === 'admin' ? [['integrations', 'Integrations'], ['models', 'Models'], ['profile', 'Profile & floors'], ['routing', 'Routing'],
+    ['correlation', 'Correlation'], ['exceptions', 'Exceptions & maintenance'],
     ['automation', 'Automation'], ['plugins', 'Plugins'], ...(app.advanced ? [['rules', 'Rules']] : []), ['users', 'Users'],
     ['security', 'Security'], ['audit', 'Audit log']] : [['security', 'Security']]);
 </script>

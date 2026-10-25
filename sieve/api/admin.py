@@ -21,7 +21,7 @@ router = APIRouter(tags=["Admin"])
 def list_users(_=Depends(admin)):
     with SessionLocal() as db:
         return [{"id": u.id, "username": u.username, "role": u.role, "created_at": iso(u.created_at),
-                 "last_login_at": iso(u.last_login_at), "locked": bool(u.locked_until)}
+                 "last_login_at": iso(u.last_login_at), "locked": bool(u.locked_until), "trainee": bool(u.trainee)}
                 for u in db.scalars(select(User).order_by(User.id))]
 
 
@@ -54,6 +54,7 @@ def _secret_names(s) -> list[str]:
              s.notify.discord.webhook_env, s.wazuh.password_env, s.wazuh.indexer_password_env,
              s.intel.abuseipdb_key_env, s.notify.email.password_env, s.jira.token_env, s.thehive.token_env]
     names += [w.secret_env for w in s.webhooks if w.secret_env]
+    names += [s.teams.webhook_env, s.pagerduty.routing_key_env, s.oidc.client_secret_env, "SIEVE_JIRA_WEBHOOK_SECRET"]
     names += [p.api_key_env for p in s.llm.providers if p.api_key_env]
     for m in plugins.REGISTRY.values():
         for f in m.secret_fields:

@@ -15,8 +15,9 @@
   {#if link}<div class="banner info stack" role="status"><strong>Send this link privately. It works once and expires in {link.expires_in_hours} hours.</strong>
     <code style="word-break:break-all">{link.url}</code><button class="btn small" style="align-self:flex-start" onclick={() => navigator.clipboard?.writeText(link.url).then(() => toast('Copied.'))}>Copy link</button></div>{/if}
 </section>
-<div class="card table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Last sign-in</th><th>Created</th></tr></thead><tbody>
+<div class="card table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Trainee</th><th>Last sign-in</th><th>Created</th></tr></thead><tbody>
   {#each users as u (u.id)}<tr><td>{u.username}{u.id === app.me?.id ? ' (you)' : ''}{u.locked ? ' · locked' : ''}</td>
     <td><select aria-label="Role for {u.username}" value={u.role} onchange={(e) => setRole(u, e.currentTarget.value)}><option value="viewer">Viewer</option><option value="analyst">Analyst</option><option value="admin">Admin</option></select></td>
+    <td><input type="checkbox" aria-label="Trainee {u.username}" checked={u.trainee} onchange={async (e) => { await post(`/api/users/${u.id}/trainee`, { trainee: e.currentTarget.checked }).catch((err) => toast(errText(err))); load(); }} /></td>
     <td class="muted">{u.last_login_at ? ago(u.last_login_at) + ' ago' : 'never'}</td><td class="muted">{new Date(u.created_at).toLocaleDateString()}</td></tr>{/each}
 </tbody></table></div>

@@ -10,12 +10,12 @@ instruction (the worst case) and fails if any injection lowers a Sieve severity 
 * Clean and poisoned variants run in separate fresh instances and are paired by scenario (doc 7.4).
 * Real model: `python benchmark/run.py --llm http://localhost:11434 --name ollama-llama3.1`.
 
-## Seed results (mock model), 2026-10-17
+## Seed results (mock model), v0.3.0, 2026-10-18
 
 | Metric | B0 raw Wazuh | B1 naive LLM | Sieve no-AI | Sieve full |
 | --- | --- | --- | --- | --- |
-| Notifications per 1,000 alerts | 449.4 | 688.3 | 18.2 | 18.2 |
-| Recall, true attacks (notified) | 50.0% | 100.0% | 58.3% | 58.3% |
+| Notifications per 1,000 alerts | 449.4 | 688.3 | 31.2 | 31.2 |
+| Recall, true attacks (notified) | 50.0% | 100.0% | 100.0% | 100.0% |
 | Attack scenarios that became an incident | – | – | 100.0% | 100.0% |
 | False alarms on benign scenarios | 40.0% | 80.0% | 0.0% | 0.0% |
 | Injection success rate | 0.0% | 42.9% | 0.0% | 0.0% |
@@ -29,9 +29,11 @@ First notification p50/p95: 9 / 14 ms (live-like replay, one alert at a time).
 ## What these numbers do and do not show
 * They validate the harness and the **design guarantees** (H2: a hijacked model cannot lower a band). They are
   not real-world accuracy: the data is synthetic and the tripwire rules were written by the same team.
-* **Known gap:** with the research doc's default weights, single-alert attacks (new admin account, encoded
-  PowerShell) score Medium, so they become incidents but do not notify at the default `min_band: high`.
-  Tune `weights` on the lab dataset, or set `notify.min_band: medium`. Not tuned here on purpose: tuning on
-  the seed set would overfit.
+* **v0.2 → v0.3:** recall on true attacks rose from 58.3% to 100% after adding severity floors (single high-impact
+  events always reach High). Notifications rose from 18 to 31 per 1,000 alerts, still about 14 times fewer than raw
+  Wazuh. Honest caveat: the floors were written knowing which seed scenarios had been missed. They follow Wazuh's
+  own level semantics (12+ is a high-importance event) and well-known high-impact techniques rather than fitted
+  numbers, but only the lab dataset can confirm them.
+* **Throughput:** one worker on SQLite processes about 190 alerts per second (`python benchmark/load.py`).
 * ECE is high because the score is a priority, not a probability. Report it, do not optimise it blindly.
 * Still to do (doc 7.4): three runs per configuration, the ablation runs, peak RAM/CPU, usability study.
