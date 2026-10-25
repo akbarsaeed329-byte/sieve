@@ -4,8 +4,9 @@
 * Any IP address in a sentence must be one of the incident's known IPs.
 * Any number (2 or more) in a sentence must appear somewhere in the trusted prompt data.
 * Sentences that themselves look like injected instructions (tripwire rules) are dropped.
-* Sentences that repeat a 4-word phrase from attacker-controlled fields are dropped (echo check),
-  so a hijacked model cannot relay the attacker's framing ("approved maintenance") to the analyst.
+* Sentences that repeat a 4-word phrase from an attacker-controlled field that itself trips the
+  tripwire are dropped (echo check), so a hijacked model cannot relay the attacker's framing
+  ("approved maintenance") to the analyst. Ordinary log text is not treated as an echo source.
 * ATT&CK IDs must exist in the official catalogue (llm/attack.py).
 * Playbook step IDs must exist in the human-written playbook library.
 * Severity is NEVER read from the model output, and no field of it is returned.
@@ -61,8 +62,9 @@ def validate(
     known_numbers = _numbers(trusted_text) if trusted_text is not None else None
     dropped: list[dict] = []
     attacker_grams: set = set()
-    for v in (untrusted or {}).values():
-        attacker_grams |= _ngrams(str(v))
+    for k, v in (untrusted or {}).items():
+        if scan({str(k): str(v)}).triggered:
+            attacker_grams |= _ngrams(str(v))
 
     clean_summary = []
     for item in (raw.get("summary") or [])[:20]:

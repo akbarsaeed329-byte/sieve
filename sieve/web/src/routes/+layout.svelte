@@ -44,6 +44,9 @@
     return () => { clearInterval(h); window.removeEventListener('sieve:signed-out', out); };
   });
 
+  // Load health as soon as someone is signed in (not only on the 30 s timer).
+  $effect(() => { if (app.me) refreshHealth(); });
+
   async function logout() { await post('/api/auth/logout').catch(() => {}); app.me = null; goto('/login'); }
 
   let nav = $derived([

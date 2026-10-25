@@ -65,6 +65,7 @@ class Outcome:
 
 
 _tasks: set[asyncio.Task] = set()
+_investigating: set[int] = set()   # incidents with an investigation in flight (no duplicates)
 _llm_sem = asyncio.Semaphore(2)
 
 
@@ -228,8 +229,12 @@ async def _checks_only(inc_id: int) -> None:
         with SessionLocal() as db:
             done = db.scalar(select(Explanation.id).where(Explanation.incident_id == inc_id,
                                                           Explanation.kind == "investigation"))
-        if not done:
-            await investigate(inc_id, runtime.current())
+        if not done and inc_id not in _investigating:
+            _investigating.add(inc_id)
+            try:
+                await investigate(inc_id, runtime.current())
+            finally:
+                _investigating.discard(inc_id)
     except Exception:  # noqa: BLE001
         log.exception("investigation checks failed", extra={"incident": inc_id})
 
@@ -246,8 +251,12 @@ async def _phase2(inc_id: int) -> None:
                 need_inv = bool(inc and inc.band == "critical" and settings.llm.investigate_critical and not
                                 db.scalar(select(Explanation.id).where(Explanation.incident_id == inc_id,
                                                                        Explanation.kind == "investigation")))
-            if need_inv:
-                await investigate(inc_id, settings)
+            if need_inv and inc_id not in _investigating:
+                _investigating.add(inc_id)
+                try:
+                    await investigate(inc_id, settings)
+                finally:
+                    _investigating.discard(inc_id)
         except Exception:  # noqa: BLE001 - phase 2 failures never affect triage
             log.exception("phase-2 failed", extra={"incident": inc_id})
 

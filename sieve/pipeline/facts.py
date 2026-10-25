@@ -18,7 +18,9 @@ def facts(inc: Incident) -> list[dict]:
         secs = int((aware(fails[-1].timestamp) - aware(fails[0].timestamp)).total_seconds())
         who = f" for {fails[0].user}" if fails[0].user else ""
         src = fails[0].srcip or "one source"
-        out.append({"text": f"{len(fails)} logins{who} failed from {src} in {secs} seconds on {inc.agent_name}.",
+        span = f" in {secs} seconds" if len(fails) > 1 and secs > 0 else ""
+        noun = "login" if len(fails) == 1 else "logins"
+        out.append({"text": f"{len(fails)} {noun}{who} failed from {src}{span} on {inc.agent_name}.",
                     "evidence": [f"alert:{fails[0].id}", f"alert:{fails[-1].id}"]})
     if oks:
         ok = oks[0]
