@@ -47,3 +47,8 @@ set `notify.public_url`.
   `sieve mcp --url https://<sieve> --token sv_…`. Tools: list_incidents, get_incident, precedents, ask.
 * **Jira two-way:** store `SIEVE_JIRA_WEBHOOK_SECRET`, then add a Jira webhook (issue updated) to
   `https://<sieve>/api/integrations/jira/webhook?secret=<value>`. Moving the issue to Done resolves the incident.
+
+## 7. High availability (optional)
+Set `SIEVE_PG_PASSWORD` in `.env`, then `docker compose --profile ha up -d`. This runs PostgreSQL, one web node
+(`sieve serve --no-worker`) and two workers (`sieve worker`). Workers lease queue items, so each alert is processed
+once; if a worker dies its leases expire and another picks the alerts up. One worker at a time runs periodic jobs.

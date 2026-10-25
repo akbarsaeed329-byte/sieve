@@ -296,6 +296,22 @@ class ChatOpsCfg(BaseModel):
     web_push: bool = True
 
 
+class RiskCfg(BaseModel):
+    """Risk-based alerting (catch slow attacks made of many low alerts)."""
+    enabled: bool = True
+    threshold: float = Field(60, ge=5)
+    half_life_hours: float = Field(12, ge=1)
+    cooldown_hours: float = Field(24, ge=1)
+
+
+class UebaCfg(BaseModel):
+    enabled: bool = True
+    min_logins: int = Field(20, ge=5)          # learn a user's hours before judging them
+    rare_hour_share: float = Field(0.03, ge=0.001, le=0.5)
+    volume_sigma: float = Field(4.0, ge=2)
+    volume_min: int = Field(50, ge=5)
+
+
 class PluginState(BaseModel):
     enabled: bool = False
     config: dict[str, Any] = Field(default_factory=dict)
@@ -338,6 +354,8 @@ class Settings(BaseModel):
     pilot: PilotCfg = Field(default_factory=PilotCfg)
     chatops: ChatOpsCfg = Field(default_factory=ChatOpsCfg)
     vuln_min_severity: Literal["critical", "high"] = "high"
+    risk: RiskCfg = Field(default_factory=RiskCfg)
+    ueba: UebaCfg = Field(default_factory=UebaCfg)
     tripwire_threshold: float = Field(1.0, gt=0)
     shadow_mode: bool = False           # triage and record, but send no notifications
     allow_active_response: bool = False  # human-approved Wazuh active response; off by default
@@ -377,6 +395,7 @@ EDITABLE_SECTIONS = (
     "sla", "webhooks", "jira", "thehive", "retention", "require_2fa_for_admins",
     "floors", "routes", "autoclose", "profile", "teams", "pagerduty", "oidc", "require_evidence_review",
     "resummarise_growth", "multi_tenant", "compliance", "silence", "pilot", "chatops", "vuln_min_severity",
+    "risk", "ueba",
 )
 # allow_active_response can only be turned on from the config file, never from the browser.
 UI_FORBIDDEN_ENABLE = ("allow_active_response",)

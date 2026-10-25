@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.0 (2026-10-18)
+From enterprise SIEM buyer checklists (UEBA, risk-based alerting, high availability, custom dashboards).
+### Added
+- High availability: PostgreSQL support (`SIEVE_DATABASE_URL`, JSONB), leased queue claims with
+  FOR UPDATE SKIP LOCKED, per-host advisory locks, a leader lock for periodic jobs, `sieve worker`,
+  `sieve serve --no-worker` and a Compose `ha` profile. The full test suite runs on SQLite and PostgreSQL 16.
+- Explainable UEBA: per-user login-hour profiles and per-host daily alert volume, stated in plain words.
+- Risk-based alerting: decaying risk per user, host and IP; one incident when an entity crosses the threshold with
+  contributions from two or more incidents, at least one of them not yet notified.
+- Custom dashboards: per-user tile layout from a widget library, tenant-aware.
+### Fixed
+- `noisy_rules` selected a non-grouped column (rejected by PostgreSQL; SQLite allowed it).
+
 ## 0.4.0 (2026-10-18)
 ### Added
 - Pilot report (before/after on your data, agreement with analysts, hours saved with your assumption) and an

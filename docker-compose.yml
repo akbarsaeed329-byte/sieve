@@ -44,9 +44,50 @@ services:
       - SIEVE_CONFIG=/app/config/sieve.yaml
     networks: [sieve-net]
 
+# --- High availability: docker compose --profile ha up -d ---------------------------------------------
+#   PostgreSQL + one web node (no worker) + two workers. Workers lease queue items with
+#   FOR UPDATE SKIP LOCKED, so each alert is processed once; one leader runs periodic jobs.
+  postgres:
+    image: postgres:16.4
+    profiles: ["ha"]
+    environment: [POSTGRES_DB=sieve, POSTGRES_USER=sieve, "POSTGRES_PASSWORD=${SIEVE_PG_PASSWORD:?set SIEVE_PG_PASSWORD in .env}"]
+    volumes: [pg-data:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD", "pg_isready", "-U", "sieve"], interval: 10s, retries: 5 }
+    restart: unless-stopped
+    networks: [sieve-net]
+  sieve-web:
+    build: .
+    profiles: ["ha"]
+    command: ["sieve", "serve", "--no-worker"]
+    ports: ["127.0.0.1:8080:8080"]
+    environment: [SIEVE_CONFIG=/app/config/sieve.yaml, "SIEVE_DATABASE_URL=postgresql://sieve:${SIEVE_PG_PASSWORD}@postgres/sieve"]
+    volumes: [sieve-data:/app/data, ./config:/app/config:ro]
+    depends_on: { postgres: { condition: service_healthy } }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    networks: [sieve-net]
+  sieve-worker:
+    build: .
+    profiles: ["ha"]
+    command: ["sieve", "worker"]
+    deploy: { replicas: 2 }
+    environment: [SIEVE_CONFIG=/app/config/sieve.yaml, "SIEVE_DATABASE_URL=postgresql://sieve:${SIEVE_PG_PASSWORD}@postgres/sieve"]
+    volumes: [sieve-data:/app/data, ./config:/app/config:ro]
+    depends_on: { postgres: { condition: service_healthy } }
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    restart: unless-stopped
+    networks: [sieve-net]
+
 volumes:
   sieve-data:
   ollama-models:
+  pg-data:
 
 networks:
   sieve-net:

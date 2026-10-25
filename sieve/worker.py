@@ -16,10 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os as _os
+import socket as _socket
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 
 from . import plugins, runtime
 from .casework import active_maintenance, matching_exception, set_sla
@@ -190,7 +192,13 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
     intel_hit, intel_info, notes = await _intel(na.srcip, settings)   # no session held across await
 
     with SessionLocal() as db:
+        from .db import dialect
+        if dialect() == "postgresql" and na.agent_name:
+            db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": f"sieve:{na.agent_name}"})
         novelty = _check_novelty(na, db)
+        from .behaviour import add_risk, login_hour, risk_alert, volume_spike
+        ueba_notes = [x for x in (login_hour(db, na, settings), volume_spike(db, na, settings)) if x]
+        novelty = novelty or bool(ueba_notes)
         from .assets import touch, vuln_match
         touch(db, na)
         inc = find_or_create_incident(na, db, settings, tw.triggered, tw.hits, tenant_id=tenant_id)
@@ -218,6 +226,8 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
         inc.novelty = bool(inc.novelty or novelty)
         if intel_hit:
             inc.intel = intel_info
+        if ueba_notes:
+            inc.context_notes = sorted(set(inc.context_notes or []) | set(ueba_notes))
         inc.partial_context = bool(inc.partial_context or notes)
         inc.context_notes = sorted(set(inc.context_notes or []) | set(notes))
         prev_band = inc.band if not is_new else None
@@ -265,9 +275,25 @@ async def process_alert(payload: dict, settings: Settings, *, bypass_filter: boo
         notify = (should and not already) or new_tripwire   # a first tripwire hit is its own alert
         if notify:
             inc.notified_band = band
+        crossed = add_risk(db, na, inc, settings) if na.rule_id not in ("sieve-200",) else []
+        # Risk alerts surface what is otherwise invisible: skip when this incident is already notified,
+        # and raise at most one per alert (source IP, then user, then host).
+        if crossed and (band_rank(band) >= band_rank(settings.notify.min_band) or notify):
+            crossed = []
+        if crossed:   # nothing new to say if every contributing incident was already notified
+            def _unseen(c):
+                ids = {x.get("incident") for x in c["contributors"] if x.get("incident")}
+                seen = select(Incident).where(Incident.id.in_(ids), Incident.notified_band.is_not(None))
+                notified = {i.id for i in db.scalars(seen)}
+                return bool(ids - notified)
+            crossed = [c for c in crossed if _unseen(c)]
+        order = {"ip": 0, "user": 1, "host": 2}
+        crossed = sorted(crossed, key=lambda c: order.get(c["entity"].split(":", 1)[0], 9))[:1]
         db.commit()
         inc_id = inc.id
         Stats.alerts += 1
+    if crossed:
+        enqueue_many([risk_alert(x, settings) for x in crossed], "sieve")
 
     out = Outcome("grouped", inc_id, band, notify)
     rose = bool(prev_band) and band_rank(band) > band_rank(prev_band)
@@ -359,13 +385,36 @@ def enqueue_many(payloads: list[dict], source: str = "wazuh") -> int:
     return len(payloads)
 
 
+WORKER_ID = f"{_socket.gethostname()}:{_os.getpid()}"
+LEASE_SECONDS = 120
+
+
+def claim(limit: int = 50) -> list[tuple]:
+    """Atomically lease pending (or lease-expired) queue items. Safe with many workers:
+    PostgreSQL uses FOR UPDATE SKIP LOCKED; SQLite serialises writers."""
+    from .db import dialect, engine
+    now = utcnow()
+    until = now + timedelta(seconds=LEASE_SECONDS)
+    skip = " FOR UPDATE SKIP LOCKED" if dialect() == "postgresql" else ""
+    sql = text(
+        "UPDATE queue SET status = 'processing', lease_until = :until, claimed_by = :me "
+        "WHERE id IN (SELECT id FROM queue WHERE status = 'pending' OR (status = 'processing' AND lease_until < :now) "
+        f"ORDER BY id LIMIT :n{skip}) "
+        "RETURNING id, payload, attempts, bypass_filter, received_at, source")
+    with engine().begin() as conn:
+        rows = conn.execute(sql, {"until": until, "me": WORKER_ID, "now": now, "n": limit}).all()
+    out = []
+    for r in sorted(rows, key=lambda x: x[0]):
+        payload = r[1] if isinstance(r[1], dict) else __import__("json").loads(r[1])
+        rec = r[4] if not isinstance(r[4], str) else __import__("datetime").datetime.fromisoformat(r[4])
+        out.append((r[0], payload, r[2], bool(r[3]), aware(rec), r[5]))
+    return out
+
+
 async def run_once(limit: int = 50) -> int:
-    """Process up to ``limit`` pending queue items; returns how many were taken."""
+    """Process up to ``limit`` leased queue items; returns how many were taken."""
     settings = runtime.current()
-    with SessionLocal() as db:
-        items = db.scalars(select(QueueItem).where(QueueItem.status == "pending")
-                           .order_by(QueueItem.id).limit(limit)).all()
-        work = [(i.id, i.payload, i.attempts, i.bypass_filter, aware(i.received_at), i.source) for i in items]
+    work = claim(limit)
     for item_id, payload, attempts, bypass, received, source in work:
         try:
             await process_alert(payload, settings, bypass_filter=bypass, received_at=received,
@@ -378,11 +427,36 @@ async def run_once(limit: int = 50) -> int:
         with SessionLocal() as db:
             item = db.get(QueueItem, item_id)
             if item:
-                item.status = status
-                item.last_error = error
+                item.status, item.last_error, item.lease_until = status, error, None
                 item.attempts = attempts + (0 if status == "done" else 1)
                 db.commit()
     return len(work)
+
+
+def is_leader(name: str = "housekeeping", ttl: int = 90) -> bool:
+    """One worker runs periodic jobs. The lease is a KV row renewed by its holder."""
+    with SessionLocal() as db:
+        q = select(KV).where(KV.key == f"leader:{name}")
+        from .db import dialect
+        if dialect() == "postgresql":
+            q = q.with_for_update()
+        row = db.scalar(q)
+        now = utcnow()
+        if row is None:
+            db.add(KV(key=f"leader:{name}", value={"id": WORKER_ID, "until": (now + timedelta(seconds=ttl)).isoformat()}))
+            try:
+                db.commit()
+                return True
+            except Exception:  # noqa: BLE001 - another worker inserted first
+                db.rollback()
+                return False
+        held_by, until = row.value.get("id"), row.value.get("until")
+        expired = not until or __import__("datetime").datetime.fromisoformat(until) < now
+        if held_by == WORKER_ID or expired:
+            row.value = {"id": WORKER_ID, "until": (now + timedelta(seconds=ttl)).isoformat()}
+            db.commit()
+            return True
+        return False
 
 
 async def _maybe_digest(settings: Settings) -> None:
@@ -447,8 +521,9 @@ async def run_worker(stop: asyncio.Event | None = None) -> None:
         try:
             Stats.heartbeat = utcnow()
             took = await run_once()
-            await _maybe_digest(runtime.current())
-            await _housekeeping()
+            if is_leader():
+                await _maybe_digest(runtime.current())
+                await _housekeeping()
         except Exception:  # noqa: BLE001 - the loop must survive anything
             log.exception("worker loop error")
         try:
@@ -461,4 +536,5 @@ async def run_worker(stop: asyncio.Event | None = None) -> None:
 def queue_depth() -> dict:
     with SessionLocal() as db:
         rows = dict(db.execute(select(QueueItem.status, func.count()).group_by(QueueItem.status)).all())
-    return {"pending": rows.get("pending", 0), "failed": rows.get("failed", 0), "done": rows.get("done", 0)}
+    return {"pending": rows.get("pending", 0) + rows.get("processing", 0), "failed": rows.get("failed", 0),
+            "done": rows.get("done", 0), "processing": rows.get("processing", 0)}

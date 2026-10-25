@@ -54,6 +54,7 @@
 
   let nav = $derived([
     { href: '/', label: 'Overview' },
+    { href: '/dashboard', label: 'Dashboard' },
     { href: '/incidents', label: 'Incidents' },
     { href: '/ask', label: 'Ask Sieve' },
     ...(app.advanced && !app.me?.tenant_id ? [{ href: '/investigate', label: 'Investigate' }, { href: '/coverage', label: 'Coverage' },

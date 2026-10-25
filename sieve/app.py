@@ -39,7 +39,10 @@ def _script_hashes(html: str) -> list[str]:
     return out
 
 
-def create_app(settings: Settings | None = None, start_worker: bool = True) -> FastAPI:
+def create_app(settings: Settings | None = None, start_worker: bool | None = None) -> FastAPI:
+    import os
+    if start_worker is None:
+        start_worker = os.environ.get("SIEVE_NO_WORKER", "").lower() not in ("1", "true", "yes")
     if settings is not None:
         runtime.set_current(settings)
     s = runtime.current()

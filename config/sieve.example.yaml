@@ -98,3 +98,8 @@ silence: { enabled: true, min_hours: 6, factor: 4 }      # silent-source inciden
 pilot: { minutes_per_alert: 2.0, raw_notify_level: 7 }   # assumptions shown in the pilot report
 chatops: { telegram_buttons: true, telegram_webhook_secret_env: SIEVE_TELEGRAM_WEBHOOK_SECRET, slack_buttons: true, slack_signing_secret_env: SIEVE_SLACK_SIGNING_SECRET, web_push: true }
 vuln_min_severity: high             # V term: open critical/high vulnerabilities on the host
+
+# --- v0.5 ---
+risk: { enabled: true, threshold: 60, half_life_hours: 12, cooldown_hours: 24 }      # risk-based alerting
+ueba: { enabled: true, min_logins: 20, rare_hour_share: 0.03, volume_sigma: 4, volume_min: 50 }
+# High availability: set SIEVE_DATABASE_URL=postgresql://user:pass@host/sieve and run several `sieve worker`.

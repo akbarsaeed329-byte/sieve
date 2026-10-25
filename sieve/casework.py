@@ -70,7 +70,7 @@ def noisy_rules(db, days: int = 30) -> list[dict]:
                                                  Incident.status.in_(("false_positive", "resolved")))):
         for r in {a.rule_id for a in inc.alerts}:
             (fp if inc.status == "false_positive" else real)[r] += 1
-    for rid, d in db.execute(select(Alert.rule_id, Alert.description).where(Alert.received_at >= since)
+    for rid, d in db.execute(select(Alert.rule_id, func.max(Alert.description)).where(Alert.received_at >= since)
                              .group_by(Alert.rule_id)).all():
         desc[rid] = d
     out = []

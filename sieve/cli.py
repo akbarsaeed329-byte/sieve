@@ -10,7 +10,9 @@ import sys
 def main(argv: list[str] | None = None) -> None:
     p = argparse.ArgumentParser(prog="sieve", description="Free, local-first triage for Wazuh alerts.")
     sub = p.add_subparsers(dest="cmd")
-    sub.add_parser("serve", help="start the web app and the triage worker")
+    sv = sub.add_parser("serve", help="start the web app and the triage worker")
+    sv.add_argument("--no-worker", action="store_true", help="web only (run workers separately: sieve worker)")
+    sub.add_parser("worker", help="run a triage worker only (scale out with PostgreSQL)")
     d = sub.add_parser("demo", help="load demo alerts (no Wazuh needed), then serve unless --no-serve")
     d.add_argument("--no-serve", action="store_true")
     i = sub.add_parser("ingest", help="queue one alert JSON file")
@@ -60,7 +62,16 @@ def main(argv: list[str] | None = None) -> None:
     elif cmd == "token":
         print(s.ingest_token)
     elif cmd == "serve":
+        if a.no_worker:
+            import os
+            os.environ["SIEVE_NO_WORKER"] = "1"
         _serve(s)
+    elif cmd == "worker":
+        from .db import init_db
+        from .worker import run_worker
+        init_db(s.db_path)
+        print("Sieve worker started (Ctrl+C to stop).")
+        asyncio.run(run_worker())
     elif cmd == "demo":
         from .demo import run_demo
         asyncio.run(run_demo())

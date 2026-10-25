@@ -1,4 +1,5 @@
 import asyncio
+import os
 
 import httpx
 import pytest
@@ -23,6 +24,14 @@ def settings(tmp_path, monkeypatch):
     s.llm.enabled = False
     s.notify.console = True
     runtime.set_current(s)
+    pg = os.environ.get("SIEVE_TEST_DATABASE_URL")
+    if pg:   # run the whole suite on PostgreSQL: fresh schema per test
+        from sqlalchemy import create_engine, text
+        monkeypatch.setenv("SIEVE_DATABASE_URL", pg)
+        eng = create_engine(pg.replace("postgresql://", "postgresql+psycopg://", 1))
+        with eng.begin() as conn:
+            conn.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+        eng.dispose()
     init_db(s.db_path)
     llm_client.reset_state()
     llm_client._sleep = _nosleep

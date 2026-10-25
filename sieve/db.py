@@ -23,6 +23,12 @@ class Base(DeclarativeBase):
 _engine = None
 SessionLocal = sessionmaker(expire_on_commit=False)
 
+_AUDIT_TRIGGERS_PG = (
+    "CREATE OR REPLACE FUNCTION sieve_audit_readonly() RETURNS trigger AS $$ BEGIN "
+    "RAISE EXCEPTION 'audit log is append-only'; END; $$ LANGUAGE plpgsql",
+    "DROP TRIGGER IF EXISTS audit_readonly ON audit",
+    "CREATE TRIGGER audit_readonly BEFORE UPDATE OR DELETE ON audit FOR EACH ROW EXECUTE FUNCTION sieve_audit_readonly()",
+)
 _AUDIT_TRIGGERS = (
     "CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit "
     "BEGIN SELECT RAISE(ABORT, 'audit log is append-only'); END",
@@ -33,6 +39,10 @@ _AUDIT_TRIGGERS = (
 
 def engine():
     return _engine
+
+
+def dialect() -> str:
+    return _engine.dialect.name if _engine is not None else "sqlite"
 
 
 def _add_missing_columns(eng) -> None:
@@ -49,35 +59,48 @@ def _add_missing_columns(eng) -> None:
                 default = ""
                 if col.default is not None and getattr(col.default, "is_scalar", False):
                     v = col.default.arg
-                    default = f" DEFAULT {int(v) if isinstance(v, bool) else repr(v)}"
+                    if isinstance(v, bool):
+                        lit = ("TRUE" if v else "FALSE") if eng.dialect.name == "postgresql" else str(int(v))
+                    elif isinstance(v, int | float):
+                        lit = str(v)
+                    else:
+                        lit = "'" + str(v).replace("'", "''") + "'"
+                    default = f" DEFAULT {lit}"
                 conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {coltype}{default}'))
                 log.info("migrated: added column %s.%s", table.name, col.name)
 
 
 def init_db(db_path: Path | str) -> None:
+    """SQLite file (default) or, when SIEVE_DATABASE_URL is set, PostgreSQL for high availability."""
+    import os
     global _engine
-    memory = str(db_path) == ":memory:"
-    url = "sqlite://" if memory else f"sqlite:///{db_path}"
-    if not memory:
-        Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-    kwargs: dict = {"connect_args": {"check_same_thread": False}}
-    if memory:
-        from sqlalchemy.pool import StaticPool
-        kwargs["poolclass"] = StaticPool
-    _engine = create_engine(url, **kwargs)
+    url_env = os.environ.get("SIEVE_DATABASE_URL", "").strip()
+    if url_env:
+        url = url_env.replace("postgres://", "postgresql+psycopg://", 1).replace("postgresql://", "postgresql+psycopg://", 1)
+        _engine = create_engine(url, pool_pre_ping=True, pool_size=10, max_overflow=10)
+    else:
+        memory = str(db_path) == ":memory:"
+        url = "sqlite://" if memory else f"sqlite:///{db_path}"
+        if not memory:
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
+        kwargs: dict = {"connect_args": {"check_same_thread": False}}
+        if memory:
+            from sqlalchemy.pool import StaticPool
+            kwargs["poolclass"] = StaticPool
+        _engine = create_engine(url, **kwargs)
 
-    @event.listens_for(_engine, "connect")
-    def _pragma(dbapi_conn, _):  # pragma: no cover - driver hook
-        cur = dbapi_conn.cursor()
-        cur.execute("PRAGMA journal_mode=WAL")
-        cur.execute("PRAGMA foreign_keys=ON")
-        cur.execute("PRAGMA busy_timeout=5000")
-        cur.close()
+        @event.listens_for(_engine, "connect")
+        def _pragma(dbapi_conn, _):  # pragma: no cover - driver hook
+            cur = dbapi_conn.cursor()
+            cur.execute("PRAGMA journal_mode=WAL")
+            cur.execute("PRAGMA foreign_keys=ON")
+            cur.execute("PRAGMA busy_timeout=5000")
+            cur.close()
 
     from . import models  # noqa: F401  (register tables)
     Base.metadata.create_all(_engine)
     _add_missing_columns(_engine)
     with _engine.begin() as conn:
-        for ddl in _AUDIT_TRIGGERS:
+        for ddl in (_AUDIT_TRIGGERS_PG if _engine.dialect.name == "postgresql" else _AUDIT_TRIGGERS):
             conn.execute(text(ddl))
     SessionLocal.configure(bind=_engine)

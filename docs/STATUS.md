@@ -1,4 +1,4 @@
-# Status: what exists vs. the plan (v0.4.0, 2026-10-18)
+# Status: what exists vs. the plan (v0.5.0, 2026-10-18)
 
 done = works and is tested; partial = works with stated limits; todo = not started. Item numbers refer to
 MASTER_AI_PROMPT.md.
@@ -61,12 +61,15 @@ MASTER_AI_PROMPT.md.
 | Vulnerability term, silent sources, quiet rules, rule drafts for gaps | done | v0.4 |
 | MISP (two-way), OTX, ThreatFox | done | v0.4 |
 | Telegram/Slack buttons, PWA push, on-call | done | v0.4; Teams buttons need a Bot Framework app (todo) |
+| Explainable UEBA (login hours, volume spikes) | done | v0.5 |
+| Risk-based alerting | done | v0.5 |
+| Custom dashboards | done | v0.5 |
 | Plugin SDK out-of-process | todo | ADR-006 (in-process with containment for now) |
-| Alembic migrations | todo | ADR-005 (additive migrations for 0.x) |
+| Alembic migrations | todo | ADR-005 (additive migrations for 0.x; dialect-aware for PostgreSQL) |
 | Real-model benchmark, ablations, usability study | todo | needs the Phase-0 lab |
 
 Validation still needed: everything has been tested against stand-ins and a synthetic seed set, not a live Wazuh
 lab with real users. See docs/EVALUATION.md.
 
-| High availability (multiple workers, Postgres) | todo | one worker sustains ~190 alerts/s on SQLite (benchmark/load.py) |
+| High availability (PostgreSQL, multiple workers, leader lock) | done | v0.5; tested with 2 concurrent workers on PostgreSQL 16 |
 | Native Wazuh dashboard plugin | todo | |

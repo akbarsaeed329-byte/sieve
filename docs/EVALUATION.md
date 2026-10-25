@@ -34,6 +34,9 @@ First notification p50/p95: 9 / 14 ms (live-like replay, one alert at a time).
   Wazuh. Honest caveat: the floors were written knowing which seed scenarios had been missed. They follow Wazuh's
   own level semantics (12+ is a high-importance event) and well-known high-impact techniques rather than fitted
   numbers, but only the lab dataset can confirm them.
+* **v0.4 → v0.5:** notifications rose from 31 to 42 per 1,000 alerts because risk-based alerting now flags hosts that
+  receive repeated, individually Medium attacks over several hours. Recall, false alarms and injection resistance
+  are unchanged. Raise `risk.threshold` if you prefer fewer of these.
 * **Throughput:** one worker on SQLite processes about 190 alerts per second (`python benchmark/load.py`).
 * ECE is high because the score is a priority, not a probability. Report it, do not optimise it blindly.
 * Still to do (doc 7.4): three runs per configuration, the ablation runs, peak RAM/CPU, usability study.

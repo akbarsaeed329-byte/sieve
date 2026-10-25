@@ -742,3 +742,149 @@ def del_oncall(rid: int, user=Depends(p_admin)):
         db.commit()
     audit(user.username, "oncall.disabled", f"rotation#{rid}")
     return {"ok": True}
+
+
+# ---------------- risk-based alerting ----------------
+@router.get("/api/risk")
+def risk(user=Depends(viewer)):
+    from ..behaviour import top_risk
+
+    with SessionLocal() as db:
+        return top_risk(db, runtime.current(), tenant_of(user))
+
+
+@router.delete("/api/risk/{entity}")
+def reset_risk(entity: str, user=Depends(analyst)):
+    from ..models import EntityRisk
+
+    with SessionLocal() as db:
+        r = db.get(EntityRisk, entity[:260])
+        if not r or (tenant_of(user) and r.tenant_id != tenant_of(user)):
+            raise SieveError(NOT_FOUND, "Entity not found.", status=404)
+        r.points = 0
+        db.commit()
+    audit(user.username, "risk.reset", entity[:200])
+    return {"ok": True}
+
+
+# ---------------- dashboards ----------------
+WIDGETS = [
+    "kpis",
+    "open_by_band",
+    "sla_breaches",
+    "top_hosts",
+    "top_ips",
+    "risk_top",
+    "open_by_owner",
+    "tripwires",
+    "compliance_due",
+    "silent_sources",
+    "noise_trend",
+]
+DEFAULT_LAYOUT = ["kpis", "open_by_band", "sla_breaches", "risk_top", "top_hosts", "compliance_due"]
+
+
+class LayoutBody(BaseModel):
+    widgets: list[str] = Field(max_length=20)
+
+
+@router.get("/api/dashboard")
+def get_layout(user=Depends(viewer)):
+    from ..models import KV
+
+    with SessionLocal() as db:
+        row = db.get(KV, f"dash:{user.id}")
+    return {"widgets": (row.value.get("widgets") if row else None) or DEFAULT_LAYOUT, "available": WIDGETS}
+
+
+@router.put("/api/dashboard")
+def put_layout(b: LayoutBody, user=Depends(viewer)):
+    from ..models import KV
+
+    w = [x for x in b.widgets if x in WIDGETS]
+    with SessionLocal() as db:
+        row = db.get(KV, f"dash:{user.id}")
+        if row:
+            row.value = {"widgets": w}
+        else:
+            db.add(KV(key=f"dash:{user.id}", value={"widgets": w}))
+        db.commit()
+    return {"widgets": w}
+
+
+@router.get("/api/dashboard/data")
+def dash_data(tenant: int | None = None, user=Depends(viewer)):
+    from collections import Counter
+    from datetime import timedelta
+
+    from sqlalchemy import func
+
+    from ..behaviour import top_risk
+    from ..compliance import clocks
+    from ..models import Incident, Notification
+    from .common import scoped
+
+    s = runtime.current()
+    now = utcnow()
+    with SessionLocal() as db:
+        open_ = db.scalars(
+            scoped(select(Incident).where(Incident.status.in_(("new", "acknowledged"))), Incident.tenant_id, user, tenant)
+        ).all()
+        week = db.scalars(
+            scoped(select(Incident).where(Incident.opened_at >= now - timedelta(days=7)), Incident.tenant_id, user, tenant)
+        ).all()
+        alerts_today = (
+            db.scalar(
+                scoped(
+                    select(func.count(Alert.id)).where(Alert.received_at >= now - timedelta(hours=24)),
+                    Alert.tenant_id,
+                    user,
+                    tenant,
+                )
+            )
+            or 0
+        )
+        ids = [i.id for i in week] or [-1]
+        notes_today = (
+            db.scalar(
+                select(func.count(Notification.id)).where(
+                    Notification.at >= now - timedelta(hours=24), Notification.phase == "send", Notification.incident_id.in_(ids)
+                )
+            )
+            or 0
+        )
+        due = []
+        for i in open_:
+            for reg, items in clocks(i, s.compliance)["regimes"].items():
+                for it in items:
+                    if it["state"] != "sent" and it.get("minutes_left") is not None and it["minutes_left"] < 24 * 60:
+                        due.append(
+                            {"id": i.id, "title": i.title, "regime": reg, "item": it["name"], "minutes_left": it["minutes_left"]}
+                        )
+        daily = Counter(aware(i.opened_at).strftime("%m-%d") for i in week)
+        risk_rows = top_risk(db, s, tenant_of(user) or tenant, 8)
+    from ..assets import silent_agents
+
+    silent = [a for a in silent_agents(s) if not (tenant_of(user) or tenant) or a["tenant_id"] == (tenant_of(user) or tenant)]
+    return {
+        "kpis": {
+            "open": len(open_),
+            "alerts_24h": alerts_today,
+            "notifications_24h": notes_today,
+            "critical_open": sum(i.band == "critical" for i in open_),
+        },
+        "open_by_band": dict(Counter(i.band for i in open_)),
+        "sla_breaches": [
+            {"id": i.id, "title": i.title, "band": i.band}
+            for i in open_
+            if i.status == "new" and i.sla_due and aware(i.sla_due) < now
+        ][:10],
+        "top_hosts": Counter(i.agent_name for i in week if i.agent_name).most_common(6),
+        "top_ips": Counter(i.srcip for i in week if i.srcip).most_common(6),
+        "risk_top": risk_rows,
+        "open_by_owner": Counter(i.assignee or "Unassigned" for i in open_).most_common(8),
+        "tripwires": [{"id": i.id, "title": i.title} for i in week if i.tripwire][:8],
+        "compliance_due": sorted(due, key=lambda x: x["minutes_left"])[:8],
+        "silent_sources": silent[:8],
+        "noise_trend": sorted(daily.items()),
+    }

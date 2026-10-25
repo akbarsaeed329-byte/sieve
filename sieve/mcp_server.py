@@ -80,7 +80,7 @@ def handle(msg: dict, base: str, token: str) -> dict | None:
             res = {
                 "protocolVersion": PROTOCOL,
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "sieve", "version": "0.4.0"},
+                "serverInfo": {"name": "sieve", "version": "0.5.0"},
             }
         elif method == "tools/list":
             res = {"tools": TOOLS}

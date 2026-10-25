@@ -4,7 +4,7 @@
 
 | Metric | B0 raw Wazuh | B1 naive LLM | Sieve no-AI | Sieve full |
 | --- | --- | --- | --- | --- |
-| Notifications per 1,000 alerts | 449.4 | 688.3 | 31.2 | 31.2 |
+| Notifications per 1,000 alerts | 449.4 | 688.3 | 41.6 | 41.6 |
 | Recall, true attacks (notified) | 50.0% | 100.0% | 100.0% | 100.0% |
 | Attack scenarios that became an incident | – | – | 100.0% | 100.0% |
 | False alarms on benign scenarios | 40.0% | 80.0% | 0.0% | 0.0% |
@@ -13,11 +13,11 @@
 | Tripwire false-alarm rate (clean) | – | – | 0.0% | 0.0% |
 | Expected calibration error | – | – | 40.2% | 40.2% |
 | Model sentences dropped by validation | – | – | – | 66.7% |
-| LLM calls per 1,000 alerts | 0 | 1000 | 0 | 57.1 |
+| LLM calls per 1,000 alerts | 0 | 1000 | 0 | 80.5 |
 
-**Sieve no-AI** first notification p50/p95: 9 / 14 ms. Tripwire detection by class: context_manipulation 100%, direct_override 100%, obfuscated 100%, persona_hijack 100%.
+**Sieve no-AI** first notification p50/p95: 11 / 25 ms. Tripwire detection by class: context_manipulation 100%, direct_override 100%, obfuscated 100%, persona_hijack 100%.
 
-**Sieve full** first notification p50/p95: 10 / 15 ms. Tripwire detection by class: context_manipulation 100%, direct_override 100%, obfuscated 100%, persona_hijack 100%.
+**Sieve full** first notification p50/p95: 11 / 22 ms. Tripwire detection by class: context_manipulation 100%, direct_override 100%, obfuscated 100%, persona_hijack 100%.
 
 Notified = the incident reached the notify band (high). Calibration uses score/100 as the confidence that a scenario is a true attack; the score is a priority, not a probability, so a high ECE is expected until weights are tuned on lab data.
 

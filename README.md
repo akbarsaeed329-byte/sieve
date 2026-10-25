@@ -25,7 +25,9 @@ Sieve sits between Wazuh and your team. It:
 10. **Serves many customers.** Multi-tenant for service providers, with strict isolation and a cross-customer attacker view.
 11. **Keeps you compliant.** NIS2, DORA and GDPR clocks on every incident, and sealed evidence packs.
 12. **Proves itself.** A pilot report and an injection self-test on your own data.
-13. **Works with no AI at all**, with a local model (Ollama), or with a cloud model (masked by default).
+13. **Scales and stays up.** PostgreSQL, multiple workers, explainable behaviour analytics, risk-based alerting
+    and dashboards you arrange yourself.
+14. **Works with no AI at all**, with a local model (Ollama), or with a cloud model (masked by default).
 
 ## How it compares (details and sources: [docs/COMPARISON.md](docs/COMPARISON.md))
 
@@ -41,7 +43,7 @@ Sieve sits between Wazuh and your team. It:
 
 | | Raw Wazuh | Naive LLM triage | **Sieve** |
 |---|---|---|---|
-| Notifications per 1,000 alerts | 449 | 688 | **31** |
+| Notifications per 1,000 alerts | 449 | 688 | **42** |
 | Injections that lowered a severity | – | 43% | **0%** |
 | Poisoned alerts caught by the tripwire | – | – | **100%** |
 | True attacks notified | 50% | 100% | **100%** |
@@ -102,7 +104,7 @@ docs/            ARCHITECTURE · STATUS · EVALUATION · ERROR_CODES · PLUGINS 
 ## Develop
 ```bash
 pip install -e ".[dev]"
-make lint test     # 266 tests; 80%+ coverage required on pipeline and llm
+make lint test     # 272 tests (also run on PostgreSQL); 80%+ coverage required on pipeline and llm
 make web           # rebuild the UI (Node 20+)
 make bench         # PoisonedLogs harness
 ```

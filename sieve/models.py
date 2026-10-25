@@ -5,9 +5,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy import JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
+
+# JSONB on PostgreSQL (supports equality, DISTINCT and indexing); JSON elsewhere.
+JSONT = JSON().with_variant(JSONB(), "postgresql")
 
 
 def utcnow() -> datetime:
@@ -26,12 +30,14 @@ class QueueItem(Base):
     __tablename__ = "queue"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
-    payload: Mapped[dict] = mapped_column(JSON)
+    payload: Mapped[dict] = mapped_column(JSONT)
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)  # pending|done|failed
     attempts: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(16), default="wazuh")  # wazuh|pull|restore|selftest|demo|cli
     bypass_filter: Mapped[bool] = mapped_column(Boolean, default=False)  # set only for analyst-restored alerts
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claimed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class Incident(Base):
@@ -42,16 +48,16 @@ class Incident(Base):
     status: Mapped[str] = mapped_column(String(24), default="new", index=True)
     score: Mapped[float] = mapped_column(Float, default=0)
     band: Mapped[str] = mapped_column(String(16), default="low", index=True)
-    breakdown: Mapped[list] = mapped_column(JSON, default=list)
-    overrides: Mapped[list] = mapped_column(JSON, default=list)
-    tactics: Mapped[list] = mapped_column(JSON, default=list)
-    techniques: Mapped[list] = mapped_column(JSON, default=list)
+    breakdown: Mapped[list] = mapped_column(JSONT, default=list)
+    overrides: Mapped[list] = mapped_column(JSONT, default=list)
+    tactics: Mapped[list] = mapped_column(JSONT, default=list)
+    techniques: Mapped[list] = mapped_column(JSONT, default=list)
     agent_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     agent_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     srcip: Mapped[str | None] = mapped_column(String(64), nullable=True)
     user: Mapped[str | None] = mapped_column(String(200), nullable=True)
     tripwire: Mapped[bool] = mapped_column(Boolean, default=False)
-    tripwire_hits: Mapped[list] = mapped_column(JSON, default=list)
+    tripwire_hits: Mapped[list] = mapped_column(JSONT, default=list)
     alert_count: Mapped[int] = mapped_column(Integer, default=0)
     first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -60,30 +66,30 @@ class Incident(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     assignee: Mapped[str | None] = mapped_column(String(120), nullable=True)
     notified_band: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    notify_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    notify_ref: Mapped[dict | None] = mapped_column(JSONT, nullable=True)
     playbook: Mapped[str | None] = mapped_column(String(40), nullable=True)
     partial_context: Mapped[bool] = mapped_column(Boolean, default=False)
-    context_notes: Mapped[list] = mapped_column(JSON, default=list)
+    context_notes: Mapped[list] = mapped_column(JSONT, default=list)
     novelty: Mapped[bool] = mapped_column(Boolean, default=False)
-    intel: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    intel: Mapped[dict | None] = mapped_column(JSONT, nullable=True)
     human_band: Mapped[str | None] = mapped_column(String(16), nullable=True)   # shadow-mode validation
     human_band_by: Mapped[str | None] = mapped_column(String(80), nullable=True)
     is_selftest: Mapped[bool] = mapped_column(Boolean, default=False)
-    tags: Mapped[list] = mapped_column(JSON, default=list)
+    tags: Mapped[list] = mapped_column(JSONT, default=list)
     sla_due: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     escalated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     merged_into: Mapped[int | None] = mapped_column(Integer, nullable=True)
     maintenance: Mapped[str | None] = mapped_column(String(300), nullable=True)
     explained_count: Mapped[int] = mapped_column(Integer, default=0)
-    correlations: Mapped[list] = mapped_column(JSON, default=list)
-    ticket_ref: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    correlations: Mapped[list] = mapped_column(JSONT, default=list)
+    ticket_ref: Mapped[dict | None] = mapped_column(JSONT, nullable=True)
     team: Mapped[str | None] = mapped_column(String(80), nullable=True)
     tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
-    vuln: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    vuln: Mapped[dict | None] = mapped_column(JSONT, nullable=True)
     aware_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     classified_major_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    regulatory: Mapped[dict | None] = mapped_column(JSON, nullable=True)   # {regimes, dora_criteria, personal_data, sent:{...}}
-    compliance: Mapped[dict | None] = mapped_column(JSON, nullable=True)   # regimes, timestamps, DORA criteria
+    regulatory: Mapped[dict | None] = mapped_column(JSONT, nullable=True)   # {regimes, dora_criteria, personal_data, sent:{...}}
+    compliance: Mapped[dict | None] = mapped_column(JSONT, nullable=True)   # regimes, timestamps, DORA criteria
     alerts: Mapped[list[Alert]] = relationship(back_populates="incident", order_by="Alert.timestamp")
     explanations: Mapped[list[Explanation]] = relationship(back_populates="incident",
                                                           order_by="Explanation.created_at")
@@ -100,14 +106,14 @@ class Alert(Base):
     agent_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
     srcip: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     user: Mapped[str | None] = mapped_column(String(200), nullable=True, index=True)
-    groups: Mapped[list] = mapped_column(JSON, default=list)
-    mitre_ids: Mapped[list] = mapped_column(JSON, default=list)
-    mitre_tactics: Mapped[list] = mapped_column(JSON, default=list)
+    groups: Mapped[list] = mapped_column(JSONT, default=list)
+    mitre_ids: Mapped[list] = mapped_column(JSONT, default=list)
+    mitre_tactics: Mapped[list] = mapped_column(JSONT, default=list)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     received_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, default=utcnow)
-    untrusted: Mapped[dict] = mapped_column(JSON, default=dict)
+    untrusted: Mapped[dict] = mapped_column(JSONT, default=dict)
     full_log: Mapped[str] = mapped_column(Text, default="")
-    raw: Mapped[dict] = mapped_column(JSON)
+    raw: Mapped[dict] = mapped_column(JSONT)
     incident_id: Mapped[int | None] = mapped_column(ForeignKey("incidents.id"), nullable=True, index=True)
     tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     incident: Mapped[Incident | None] = relationship(back_populates="alerts")
@@ -123,7 +129,7 @@ class Suppression(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     reason: Mapped[str] = mapped_column(String(300))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
-    raw: Mapped[dict | None] = mapped_column(JSON, nullable=True)   # kept so a reviewer can restore it
+    raw: Mapped[dict | None] = mapped_column(JSONT, nullable=True)   # kept so a reviewer can restore it
     sampled: Mapped[bool] = mapped_column(Boolean, default=False)
     sample_week: Mapped[str | None] = mapped_column(String(10), nullable=True, index=True)  # ISO week, 2026-W42
     review_outcome: Mapped[str | None] = mapped_column(String(32), nullable=True)  # noise|restored
@@ -140,10 +146,10 @@ class Explanation(Base):
     kind: Mapped[str] = mapped_column(String(16), default="summary")  # summary|investigation|nis2
     provider: Mapped[str] = mapped_column(String(80))
     model: Mapped[str] = mapped_column(String(120))
-    summary: Mapped[dict] = mapped_column(JSON)
-    validation: Mapped[dict] = mapped_column(JSON)
-    hypotheses: Mapped[list] = mapped_column(JSON, default=list)
-    steps: Mapped[list] = mapped_column(JSON, default=list)
+    summary: Mapped[dict] = mapped_column(JSONT)
+    validation: Mapped[dict] = mapped_column(JSONT)
+    hypotheses: Mapped[list] = mapped_column(JSONT, default=list)
+    steps: Mapped[list] = mapped_column(JSONT, default=list)
     steps_taken: Mapped[int] = mapped_column(Integer, default=0)
     budget_hit: Mapped[bool] = mapped_column(Boolean, default=False)
     prompt_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -215,7 +221,7 @@ class IntelCache(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source: Mapped[str] = mapped_column(String(40), index=True)
     indicator: Mapped[str] = mapped_column(String(120), index=True)
-    data: Mapped[dict] = mapped_column(JSON)
+    data: Mapped[dict] = mapped_column(JSONT)
     fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -273,7 +279,7 @@ class KV(Base):
     """Small app-state store (setup progress, last digest time). Not for secrets."""
     __tablename__ = "kv"
     key: Mapped[str] = mapped_column(String(80), primary_key=True)
-    value: Mapped[dict] = mapped_column(JSON, default=dict)
+    value: Mapped[dict] = mapped_column(JSONT, default=dict)
 
 
 class SecretRecord(Base):
@@ -339,7 +345,7 @@ class ApiToken(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked: Mapped[bool] = mapped_column(Boolean, default=False)
-    scopes: Mapped[list | None] = mapped_column(JSON, nullable=True)   # None = all endpoints for the role
+    scopes: Mapped[list | None] = mapped_column(JSONT, nullable=True)   # None = all endpoints for the role
     tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     use_count: Mapped[int] = mapped_column(Integer, default=0)
     rate_per_min: Mapped[int] = mapped_column(Integer, default=120)
@@ -351,9 +357,9 @@ class CorrelationRule(Base):
     __tablename__ = "correlation_rules"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120))
-    first: Mapped[dict] = mapped_column(JSON)          # {"rule_ids": [...], "groups": [...], "min_count": 1}
-    then: Mapped[dict] = mapped_column(JSON)
-    same: Mapped[list] = mapped_column(JSON, default=list)   # any of srcip, user, agent_name
+    first: Mapped[dict] = mapped_column(JSONT)          # {"rule_ids": [...], "groups": [...], "min_count": 1}
+    then: Mapped[dict] = mapped_column(JSONT)
+    same: Mapped[list] = mapped_column(JSONT, default=list)   # any of srcip, user, agent_name
     within_minutes: Mapped[int] = mapped_column(Integer, default=10)
     band: Mapped[str] = mapped_column(String(16), default="high")
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -382,10 +388,10 @@ class Tenant(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True)
     slug: Mapped[str] = mapped_column(String(60), unique=True)
-    wazuh_groups: Mapped[list] = mapped_column(JSON, default=list)
-    host_patterns: Mapped[list] = mapped_column(JSON, default=list)     # fallback: glob on agent name
-    brand: Mapped[dict] = mapped_column(JSON, default=dict)             # {"color": "#0B6E69", "title": "..."}
-    contacts: Mapped[list] = mapped_column(JSON, default=list)          # [{"name", "email", "phone", "role"}]
+    wazuh_groups: Mapped[list] = mapped_column(JSONT, default=list)
+    host_patterns: Mapped[list] = mapped_column(JSONT, default=list)     # fallback: glob on agent name
+    brand: Mapped[dict] = mapped_column(JSONT, default=dict)             # {"color": "#0B6E69", "title": "..."}
+    contacts: Mapped[list] = mapped_column(JSONT, default=list)          # [{"name", "email", "phone", "role"}]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
@@ -395,12 +401,12 @@ class AgentState(Base):
     __tablename__ = "agents"
     agent_name: Mapped[str] = mapped_column(String(200), primary_key=True)
     agent_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    groups: Mapped[list] = mapped_column(JSON, default=list)
+    groups: Mapped[list] = mapped_column(JSONT, default=list)
     tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     last_alert_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     alerts_7d: Mapped[int] = mapped_column(Integer, default=0)
     silent_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    vulns: Mapped[dict] = mapped_column(JSON, default=dict)             # {"critical": n, "high": n, "cves": [...]}
+    vulns: Mapped[dict] = mapped_column(JSONT, default=dict)             # {"critical": n, "high": n, "cves": [...]}
     vulns_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     status: Mapped[str | None] = mapped_column(String(24), nullable=True)   # Wazuh agent status if known
 
@@ -412,8 +418,8 @@ class AutomationRule(Base):
     name: Mapped[str] = mapped_column(String(120))
     # incident.created | incident.band_raised | incident.tripwire | incident.overdue
     trigger: Mapped[str] = mapped_column(String(32))
-    conditions: Mapped[dict] = mapped_column(JSON, default=dict)
-    actions: Mapped[list] = mapped_column(JSON, default=list)
+    conditions: Mapped[dict] = mapped_column(JSONT, default=dict)
+    actions: Mapped[list] = mapped_column(JSONT, default=list)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_by: Mapped[str] = mapped_column(String(80))
@@ -427,7 +433,7 @@ class OnCall(Base):
     __tablename__ = "oncall"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(80))
-    members: Mapped[list] = mapped_column(JSON, default=list)          # usernames in rotation order
+    members: Mapped[list] = mapped_column(JSONT, default=list)          # usernames in rotation order
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     shift_hours: Mapped[int] = mapped_column(Integer, default=168)
     tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -439,8 +445,27 @@ class PushSubscription(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     endpoint: Mapped[str] = mapped_column(Text, unique=True)
-    keys: Mapped[dict] = mapped_column(JSON)
+    keys: Mapped[dict] = mapped_column(JSONT)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class EntityRisk(Base):
+    """Risk-based alerting: decaying risk points per entity (user, host, source IP)."""
+    __tablename__ = "entity_risk"
+    entity: Mapped[str] = mapped_column(String(260), primary_key=True)    # user:deploy | host:web-01 | ip:203.0.113.45
+    tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    points: Mapped[float] = mapped_column(Float, default=0)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_alerted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    contributors: Mapped[list] = mapped_column(JSONT, default=list)
+
+
+class BehaviourProfile(Base):
+    """UEBA memory: login-hour histograms per user, daily alert volume per host."""
+    __tablename__ = "behaviour"
+    key: Mapped[str] = mapped_column(String(260), primary_key=True)
+    data: Mapped[dict] = mapped_column(JSONT, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class AuditEvent(Base):
@@ -451,6 +476,6 @@ class AuditEvent(Base):
     actor: Mapped[str] = mapped_column(String(80))
     action: Mapped[str] = mapped_column(String(80))
     target: Mapped[str] = mapped_column(String(200), default="")
-    detail: Mapped[dict] = mapped_column(JSON, default=dict)
+    detail: Mapped[dict] = mapped_column(JSONT, default=dict)
 
 
